@@ -58,8 +58,18 @@ export function useAuth(): UseAuthReturn {
           setSession(currentSession);
           
           if (currentSession?.user) {
-            const enhancedUser = await fetchUserProfile(currentSession.user);
-            setUser(enhancedUser);
+            try {
+              const enhancedUser = await fetchUserProfile(currentSession.user);
+              setUser(enhancedUser);
+            } catch (profileError) {
+              console.error('Error fetching profile during initial load:', profileError);
+              // Set basic user info even if profile fetch fails
+              setUser({
+                ...currentSession.user,
+                profile: undefined,
+                isAdmin: false
+              });
+            }
           } else {
             setUser(null);
           }
@@ -69,6 +79,8 @@ export function useAuth(): UseAuthReturn {
       } catch (error) {
         console.error('Error in getInitialSession:', error);
         if (mounted) {
+          setUser(null);
+          setSession(null);
           setLoading(false);
         }
       }
@@ -103,7 +115,7 @@ export function useAuth(): UseAuthReturn {
           setUser(null);
         }
 
-        // Ensure loading is set to false after any auth state change
+        // Always ensure loading is set to false after any auth state change
         setLoading(false);
 
         // Handle specific auth events
