@@ -30,6 +30,7 @@ import { CacheStats } from './components/CacheStats';
 import { DocumentUpload } from './components/DocumentUpload';
 import { LandingPage } from './components/LandingPage';
 import { AuthForm } from './components/auth/AuthForm';
+import { PasswordResetForm } from './components/auth/PasswordResetForm';
 import { UserDashboard } from './components/UserDashboard';
 import { AdminPanel } from './components/AdminPanel';
 import { Notification } from './components/Notification';
@@ -210,6 +211,7 @@ function App() {
   
   const [showLanding, setShowLanding] = useState(true);
   const [showAuth, setShowAuth] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [currentTool, setCurrentTool] = useState<string | null>(null);
@@ -252,6 +254,18 @@ function App() {
     }
   });
 
+  // Check for password reset in URL
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isPasswordReset = window.location.pathname === '/reset-password' || urlParams.has('type') && urlParams.get('type') === 'recovery';
+    
+    if (isPasswordReset) {
+      setShowPasswordReset(true);
+      setShowLanding(false);
+      setShowAuth(false);
+    }
+  }, []);
+
   const handleGetStarted = () => {
     if (user) {
       setShowLanding(false);
@@ -263,13 +277,21 @@ function App() {
 
   const handleAuthSuccess = () => {
     setShowAuth(false);
+    setShowPasswordReset(false);
     setShowLanding(false);
     showSuccess('Welcome to PlainSpeak!', 'Your account is ready. Start exploring our AI tools.');
+  };
+
+  const handlePasswordResetSuccess = () => {
+    setShowPasswordReset(false);
+    setShowAuth(true);
+    showSuccess('Password updated!', 'You can now sign in with your new password.');
   };
 
   const handleBackToLanding = () => {
     setShowLanding(true);
     setShowAuth(false);
+    setShowPasswordReset(false);
     setShowDashboard(false);
     setShowAdminPanel(false);
     setCurrentTool(null);
@@ -277,6 +299,9 @@ function App() {
     setProcessedDocument(null);
     setInputText('');
     setError(null);
+    
+    // Clear URL parameters
+    window.history.replaceState({}, document.title, window.location.pathname);
   };
 
   const handleSignOut = async () => {
@@ -422,8 +447,18 @@ I'm now ready to answer any questions about the content, explain complex terms, 
           onDismiss={dismissNotification} 
         />
 
+        {/* Show password reset form */}
+        {showPasswordReset && (
+          <PasswordResetForm 
+            onSuccess={handlePasswordResetSuccess} 
+            onBack={handleBackToLanding}
+            onError={(error) => showError('Password Reset Error', error)}
+            onInfo={(message) => showInfo('Info', message)}
+          />
+        )}
+
         {/* Show auth form */}
-        {showAuth && (
+        {showAuth && !showPasswordReset && (
           <AuthForm 
             onSuccess={handleAuthSuccess} 
             onBack={handleBackToLanding}
@@ -433,12 +468,12 @@ I'm now ready to answer any questions about the content, explain complex terms, 
         )}
 
         {/* Show landing page */}
-        {showLanding && !showAuth && (
+        {showLanding && !showAuth && !showPasswordReset && (
           <LandingPage onGetStarted={handleGetStarted} />
         )}
 
         {/* Show admin panel */}
-        {showAdminPanel && user?.isAdmin && !showLanding && !showAuth && (
+        {showAdminPanel && user?.isAdmin && !showLanding && !showAuth && !showPasswordReset && (
           <AdminPanel 
             user={user} 
             onBack={() => setShowAdminPanel(false)}
@@ -448,7 +483,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
         )}
 
         {/* Show dashboard */}
-        {showDashboard && user && !showLanding && !showAuth && !showAdminPanel && (
+        {showDashboard && user && !showLanding && !showAuth && !showPasswordReset && !showAdminPanel && (
           <UserDashboard 
             user={user} 
             onBack={() => setShowDashboard(false)}
@@ -457,7 +492,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
         )}
 
         {/* Show tool interface */}
-        {currentTool && !showLanding && !showAuth && !showDashboard && !showAdminPanel && (() => {
+        {currentTool && !showLanding && !showAuth && !showPasswordReset && !showDashboard && !showAdminPanel && (() => {
           const selectedTool = tools.find(tool => tool.id === currentTool);
           if (!selectedTool) return null;
 
@@ -726,7 +761,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
         })()}
 
         {/* Show tools grid when not in any specific mode */}
-        {!showLanding && !showAuth && !showDashboard && !showAdminPanel && !currentTool && (
+        {!showLanding && !showAuth && !showPasswordReset && !showDashboard && !showAdminPanel && !currentTool && (
           <div className="min-h-screen bg-gradient-to-br from-bolt-blue-50 via-white to-bolt-blue-50">
             {/* Header */}
             <div className="bg-white/80 backdrop-blur-sm shadow-sm border-b border-bolt-gray-100">
