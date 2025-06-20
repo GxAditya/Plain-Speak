@@ -1,11 +1,13 @@
 /**
  * Enhanced Custom hook for cached API calls with history tracking
  * Integrates with the user history system to automatically save interactions
+ * Now includes free tier support with conditional history saving
  */
 
 import { useState, useCallback } from 'react';
 import { frontendCache } from '../utils/cache';
 import { useHistory } from './useHistory';
+import { useFreeTier } from './useFreeTier';
 
 interface UseCachedAPIOptions {
   toolId: string;
@@ -51,6 +53,7 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { saveInteraction } = useHistory();
+  const { freeTierInfo } = useFreeTier();
 
   const callAPI = useCallback(async (
     query: string,
@@ -131,7 +134,8 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
         clientMetadata: {
           timestamp: new Date().toISOString(),
           toolId,
-          cacheKey: cacheKey.substring(0, 50) // Truncated for logging
+          cacheKey: cacheKey.substring(0, 50), // Truncated for logging
+          userTier: freeTierInfo?.tier || 'unknown'
         }
       };
 
@@ -177,8 +181,8 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
           data.modelUsed
         );
 
-        // Save interaction to history (only if user is authenticated)
-        if (session?.access_token) {
+        // Save interaction to history (only if user is authenticated and history is saved for their tier)
+        if (session?.access_token && freeTierInfo?.historySaved !== false) {
           try {
             await saveInteraction({
               toolId,
@@ -195,13 +199,16 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
                 isDeepThinking,
                 responseMetadata: data.responseMetadata,
                 processingInfo: data.processingInfo,
-                cacheKey: cacheKey.substring(0, 50)
+                cacheKey: cacheKey.substring(0, 50),
+                userTier: freeTierInfo?.tier || 'unknown'
               }
             });
           } catch (historyError) {
             // Don't fail the main request if history saving fails
             console.warn('Failed to save interaction to history:', historyError);
           }
+        } else if (freeTierInfo?.historySaved === false) {
+          console.log('History not saved for free tier user');
         }
 
         // Log enhanced response info for debugging
@@ -210,7 +217,8 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
           queryComplexity: data.queryComplexity,
           ragEnhanced: data.ragEnhanced,
           responseQuality: data.responseMetadata?.hasActionableAdvice ? 'high' : 'standard',
-          processingTime: `${processingTime}ms`
+          processingTime: `${processingTime}ms`,
+          historySaved: freeTierInfo?.historySaved !== false
         });
 
         onSuccess?.(enhancedData, false);
@@ -229,7 +237,7 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
     } finally {
       setIsLoading(false);
     }
-  }, [toolId, onSuccess, onError, saveInteraction]);
+  }, [toolId, onSuccess, onError, saveInteraction, freeTierInfo]);
 
   const clearToolCache = useCallback(() => {
     // Clear cache entries for the specific tool

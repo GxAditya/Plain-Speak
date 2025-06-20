@@ -1,6 +1,7 @@
 /**
- * User Dashboard Component
+ * Enhanced User Dashboard Component
  * Main dashboard view showing user statistics and navigation to history
+ * Now includes free tier management
  */
 
 import React, { useState, useEffect } from 'react';
@@ -18,20 +19,27 @@ import {
   AlertCircle,
   Sparkles,
   Brain,
-  Zap
+  Zap,
+  Key,
+  Upload
 } from 'lucide-react';
 import { useHistory } from '../hooks/useHistory';
+import { useFreeTier } from '../hooks/useFreeTier';
 import { HistoryList } from './HistoryList';
+import { FreeTierSettings } from './FreeTierSettings';
 
 interface UserDashboardProps {
   user: any;
   onBack: () => void;
+  onError?: (error: string) => void;
 }
 
-export function UserDashboard({ user, onBack }: UserDashboardProps) {
+export function UserDashboard({ user, onBack, onError }: UserDashboardProps) {
   const { getUserStats, exportData, isLoading, error } = useHistory();
+  const { freeTierInfo, loading: tierLoading } = useFreeTier();
   const [stats, setStats] = useState<any>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
@@ -44,6 +52,7 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
       setStats(userStats);
     } catch (err) {
       console.error('Failed to load user stats:', err);
+      onError?.('Failed to load dashboard statistics');
     }
   };
 
@@ -64,6 +73,7 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to export data:', err);
+      onError?.('Failed to export data');
     } finally {
       setIsExporting(false);
     }
@@ -87,6 +97,43 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
         onBack={() => setShowHistory(false)} 
         onBackToDashboard={onBack}
       />
+    );
+  }
+
+  if (showSettings) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-bolt-gray-50 to-white">
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
+              >
+                <ChevronRight className="h-5 w-5 rotate-180" />
+                <span className="font-medium">Back to Dashboard</span>
+              </button>
+              
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-gradient-to-r from-bolt-blue-600 to-bolt-blue-700 rounded-xl">
+                  <Settings className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-bolt-gray-900">Settings</h1>
+                  <p className="text-sm text-bolt-gray-500">{user.email}</p>
+                </div>
+              </div>
+
+              <div className="w-32"></div> {/* Spacer for balance */}
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <FreeTierSettings />
+        </div>
+      </div>
     );
   }
 
@@ -137,6 +184,35 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-3">
             <AlertCircle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{error}</span>
+          </div>
+        )}
+
+        {/* Free Tier Status Banner */}
+        {freeTierInfo?.tier === 'free' && (
+          <div className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-blue-100 rounded-xl">
+                  <Zap className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-bolt-gray-900">Free Tier Account</h3>
+                  <p className="text-bolt-gray-600">
+                    {freeTierInfo.uploadsRemaining} uploads remaining today • 
+                    {freeTierInfo.hasGeminiKey ? ' API key configured' : ' API key required'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Key className="h-4 w-4" />
+                  <span>Manage API Key</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -196,13 +272,22 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
               <div className="bg-white rounded-xl shadow-sm border border-bolt-gray-100 p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-bolt-gray-600">Avg Complexity</p>
+                    <p className="text-sm font-medium text-bolt-gray-600">
+                      {freeTierInfo?.tier === 'free' ? 'Today\'s Uploads' : 'Avg Complexity'}
+                    </p>
                     <p className="text-2xl font-bold text-bolt-gray-900">
-                      {stats?.overview.avgQueryComplexity?.toFixed(1) || '0.0'}
+                      {freeTierInfo?.tier === 'free' ? 
+                        freeTierInfo.dailyUploadsCount : 
+                        stats?.overview.avgQueryComplexity?.toFixed(1) || '0.0'
+                      }
                     </p>
                   </div>
                   <div className="p-3 bg-orange-100 rounded-lg">
-                    <Brain className="h-6 w-6 text-orange-600" />
+                    {freeTierInfo?.tier === 'free' ? (
+                      <Upload className="h-6 w-6 text-orange-600" />
+                    ) : (
+                      <Brain className="h-6 w-6 text-orange-600" />
+                    )}
                   </div>
                 </div>
               </div>
@@ -270,6 +355,16 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
                   <h3 className="text-lg font-semibold text-bolt-gray-900 mb-4">Account Info</h3>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
+                      <span className="text-sm text-bolt-gray-600">Plan</span>
+                      <span className={`text-sm font-medium px-2 py-1 rounded-full ${
+                        freeTierInfo?.tier === 'free' ? 'bg-blue-100 text-blue-800' :
+                        freeTierInfo?.tier === 'pro' ? 'bg-purple-100 text-purple-800' :
+                        'bg-gold-100 text-gold-800'
+                      }`}>
+                        {freeTierInfo?.tier?.charAt(0).toUpperCase() + freeTierInfo?.tier?.slice(1) || 'Free'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
                       <span className="text-sm text-bolt-gray-600">Most Used Tool</span>
                       <span className="text-sm font-medium text-bolt-gray-900">
                         {stats?.overview.mostUsedTool || 'None'}
@@ -294,16 +389,31 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
                 <div className="bg-white rounded-xl shadow-sm border border-bolt-gray-100 p-6">
                   <h3 className="text-lg font-semibold text-bolt-gray-900 mb-4">Quick Actions</h3>
                   <div className="space-y-3">
-                    <button
-                      onClick={() => setShowHistory(true)}
-                      className="w-full flex items-center justify-between p-3 text-left bg-bolt-gray-50 hover:bg-bolt-gray-100 rounded-lg transition-colors"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <Clock className="h-4 w-4 text-bolt-gray-600" />
-                        <span className="text-sm font-medium text-bolt-gray-900">View History</span>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-bolt-gray-400" />
-                    </button>
+                    {freeTierInfo?.historySaved !== false && (
+                      <button
+                        onClick={() => setShowHistory(true)}
+                        className="w-full flex items-center justify-between p-3 text-left bg-bolt-gray-50 hover:bg-bolt-gray-100 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Clock className="h-4 w-4 text-bolt-gray-600" />
+                          <span className="text-sm font-medium text-bolt-gray-900">View History</span>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-bolt-gray-400" />
+                      </button>
+                    )}
+                    
+                    {freeTierInfo?.tier === 'free' && (
+                      <button
+                        onClick={() => setShowSettings(true)}
+                        className="w-full flex items-center justify-between p-3 text-left bg-bolt-gray-50 hover:bg-bolt-gray-100 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Key className="h-4 w-4 text-bolt-gray-600" />
+                          <span className="text-sm font-medium text-bolt-gray-900">API Key Settings</span>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-bolt-gray-400" />
+                      </button>
+                    )}
                     
                     <button
                       onClick={handleExportData}
@@ -323,8 +433,21 @@ export function UserDashboard({ user, onBack }: UserDashboardProps) {
                   </div>
                 </div>
 
+                {/* Free Tier Notice */}
+                {freeTierInfo?.tier === 'free' && (
+                  <div className="bg-white rounded-xl shadow-sm border border-bolt-gray-100 p-6">
+                    <h3 className="text-lg font-semibold text-bolt-gray-900 mb-4">Free Tier Notice</h3>
+                    <div className="space-y-3 text-sm text-bolt-gray-600">
+                      <p>• Chat history is not saved on the free tier</p>
+                      <p>• 3 document uploads per day</p>
+                      <p>• Requires your own Gemini API key</p>
+                      <p>• All AI tools available</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Recent Activity */}
-                {stats?.recentActivity && stats.recentActivity.length > 0 && (
+                {stats?.recentActivity && stats.recentActivity.length > 0 && freeTierInfo?.historySaved !== false && (
                   <div className="bg-white rounded-xl shadow-sm border border-bolt-gray-100 p-6">
                     <h3 className="text-lg font-semibold text-bolt-gray-900 mb-4">Recent Activity</h3>
                     <div className="space-y-3">

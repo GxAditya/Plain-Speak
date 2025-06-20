@@ -1,6 +1,7 @@
 /**
  * Enhanced Document Upload Component
  * Handles multiple file formats with comprehensive error handling and user feedback
+ * Now includes free tier upload limit checking
  */
 
 import React, { useState, useCallback } from 'react';
@@ -19,12 +20,15 @@ import {
   Layers,
   Database,
   Zap,
-  X
+  X,
+  Key,
+  ExternalLink
 } from 'lucide-react';
 import { documentProcessor, ProcessedDocument } from '../utils/documentProcessor';
 import { supabase } from '../utils/supabase';
 import { parseError, logError } from '../utils/errorHandler';
 import { LoadingSpinner, InlineLoading } from './LoadingSpinner';
+import { useFreeTier } from '../hooks/useFreeTier';
 
 interface DocumentUploadProps {
   onDocumentProcessed: (document: ProcessedDocument) => void;
@@ -33,6 +37,7 @@ interface DocumentUploadProps {
 }
 
 export function DocumentUpload({ onDocumentProcessed, onError, disabled }: DocumentUploadProps) {
+  const { freeTierInfo, checkUploadLimit, refreshTierInfo } = useFreeTier();
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [processedDoc, setProcessedDoc] = useState<ProcessedDocument | null>(null);
@@ -93,6 +98,28 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
   const handleFileUpload = async (file: File) => {
     if (disabled) return;
     
+    // Check upload limits for free tier users
+    if (freeTierInfo?.tier === 'free') {
+      updateProgress('Checking upload limits...', 5);
+      
+      const limitCheck = await checkUploadLimit();
+      
+      if (!limitCheck.allowed) {
+        if (limitCheck.requiresKey) {
+          onError('Please configure your Gemini API key in settings before uploading documents.');
+          return;
+        }
+        
+        if (limitCheck.limitExceeded) {
+          onError(`Daily upload limit reached. You can upload again tomorrow at ${limitCheck.resetTime || 'midnight UTC'}.`);
+          return;
+        }
+        
+        onError(limitCheck.error || 'Upload not allowed');
+        return;
+      }
+    }
+    
     setUploadedFile(file);
     setProcessedDoc(null);
     setIndexingStatus(null);
@@ -127,6 +154,11 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
 
       // Start RAG indexing process
       await indexDocumentForRAG(processed);
+      
+      // Refresh tier info to update upload counts
+      if (freeTierInfo?.tier === 'free') {
+        await refreshTierInfo();
+      }
       
     } catch (error) {
       const errorDetails = parseError(error);
@@ -250,14 +282,77 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
     }
   };
 
+  // Check if upload is disabled due to free tier limits
+  const isUploadDisabled = disabled || isProcessing || 
+    (freeTierInfo?.tier === 'free' && (!freeTierInfo.hasGeminiKey || freeTierInfo.uploadsRemaining <= 0));
+
   return (
     <div className="space-y-6">
+      {/* Free Tier Upload Status */}
+      {freeTierInfo?.tier === 'free' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <Zap className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h4 className="font-medium text-blue-900 mb-2">Free Tier Status</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div className="flex items-center space-x-2">
+                  <Upload className="h-4 w-4 text-blue-600" />
+                  <span className="text-blue-800">
+                    {freeTierInfo.uploadsRemaining} uploads remaining today
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Key className="h-4 w-4 text-blue-600" />
+                  <span className="text-blue-800">
+                    API Key: {freeTierInfo.hasGeminiKey ? 'Configured' : 'Required'}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Clock className="h-4 w-4 text-blue-600" />
+                  <span className="text-blue-800">
+                    Resets at midnight UTC
+                  </span>
+                </div>
+              </div>
+              
+              {!freeTierInfo.hasGeminiKey && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-yellow-800 text-sm">
+                      Configure your Gemini API key to start uploading documents
+                    </span>
+                    <a
+                      href="https://makersuite.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center space-x-1 text-yellow-700 hover:text-yellow-800 text-sm font-medium"
+                    >
+                      <span>Get API Key</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+              
+              {freeTierInfo.uploadsRemaining <= 0 && freeTierInfo.hasGeminiKey && (
+                <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <span className="text-orange-800 text-sm">
+                    Daily upload limit reached. You can upload again tomorrow.
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upload Area */}
       <div
         className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
           dragActive
             ? 'border-blue-400 bg-blue-50'
-            : disabled
+            : isUploadDisabled
             ? 'border-gray-200 bg-gray-50'
             : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
         }`}
@@ -269,7 +364,7 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
         <input
           type="file"
           onChange={handleFileInputChange}
-          disabled={disabled || isProcessing}
+          disabled={isUploadDisabled}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
           accept=".pdf,.docx,.doc,.txt,.rtf"
         />
@@ -294,18 +389,28 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
           ) : (
             <>
               <Upload className={`h-12 w-12 mx-auto ${
-                dragActive ? 'text-blue-600' : 'text-gray-400'
+                dragActive ? 'text-blue-600' : isUploadDisabled ? 'text-gray-300' : 'text-gray-400'
               } transition-colors`} />
               <div>
                 <p className="text-lg font-medium text-gray-900">
-                  {dragActive ? 'Drop your document here' : 'Upload Document'}
+                  {dragActive ? 'Drop your document here' : 
+                   isUploadDisabled ? 'Upload Disabled' : 'Upload Document'}
                 </p>
                 <p className="text-gray-600">
-                  Drag & drop or click to browse
+                  {isUploadDisabled ? 
+                    (freeTierInfo?.tier === 'free' && !freeTierInfo.hasGeminiKey ? 
+                      'Configure API key to upload' : 
+                      freeTierInfo?.tier === 'free' && freeTierInfo.uploadsRemaining <= 0 ?
+                      'Daily limit reached' :
+                      'Upload temporarily disabled') :
+                    'Drag & drop or click to browse'
+                  }
                 </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  Supports PDF, DOCX, DOC, TXT, RTF • Max 10MB
-                </p>
+                {!isUploadDisabled && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    Supports PDF, DOCX, DOC, TXT, RTF • Max 10MB
+                  </p>
+                )}
               </div>
             </>
           )}
