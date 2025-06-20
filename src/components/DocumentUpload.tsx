@@ -1,7 +1,6 @@
 /**
- * Advanced Document Upload Component
- * Handles multiple file formats with progress tracking and detailed analysis
- * Now includes RAG indexing integration
+ * Enhanced Document Upload Component
+ * Handles multiple file formats with comprehensive error handling and user feedback
  */
 
 import React, { useState, useCallback } from 'react';
@@ -19,10 +18,13 @@ import {
   Hash,
   Layers,
   Database,
-  Zap
+  Zap,
+  X
 } from 'lucide-react';
 import { documentProcessor, ProcessedDocument } from '../utils/documentProcessor';
 import { supabase } from '../utils/supabase';
+import { parseError, logError } from '../utils/errorHandler';
+import { LoadingSpinner, InlineLoading } from './LoadingSpinner';
 
 interface DocumentUploadProps {
   onDocumentProcessed: (document: ProcessedDocument) => void;
@@ -36,6 +38,7 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
   const [processedDoc, setProcessedDoc] = useState<ProcessedDocument | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [processingStage, setProcessingStage] = useState<string>('');
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [indexingStatus, setIndexingStatus] = useState<{
     isIndexing: boolean;
     chunksCreated: number;
@@ -63,6 +66,30 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
     }
   }, []);
 
+  const validateFile = (file: File): string | null => {
+    // Check if file type is supported
+    if (!documentProcessor.isSupported(file)) {
+      return `Unsupported file type. Supported formats: ${documentProcessor.getSupportedTypes().join(', ')}`;
+    }
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      return 'File size too large. Maximum size is 10MB.';
+    }
+
+    // Check if file is empty
+    if (file.size === 0) {
+      return 'File appears to be empty. Please select a valid document.';
+    }
+
+    return null;
+  };
+
+  const updateProgress = (stage: string, progress: number) => {
+    setProcessingStage(stage);
+    setProcessingProgress(progress);
+  };
+
   const handleFileUpload = async (file: File) => {
     if (disabled) return;
     
@@ -70,41 +97,51 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
     setProcessedDoc(null);
     setIndexingStatus(null);
     setIsProcessing(true);
-    setProcessingStage('Validating file...');
+    setProcessingProgress(0);
 
     try {
-      // Check if file type is supported
-      if (!documentProcessor.isSupported(file)) {
-        throw new Error(`Unsupported file type. Supported formats: ${documentProcessor.getSupportedTypes().join(', ')}`);
+      updateProgress('Validating file...', 10);
+
+      // Validate file
+      const validationError = validateFile(file);
+      if (validationError) {
+        throw new Error(validationError);
       }
 
-      // Check file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        throw new Error('File size too large. Maximum size is 10MB.');
-      }
-
-      setProcessingStage('Extracting content...');
+      updateProgress('Extracting content...', 30);
       
       // Process the document
       const processed = await documentProcessor.processDocument(file);
       
-      setProcessingStage('Analyzing structure...');
+      updateProgress('Analyzing structure...', 70);
       
       // Small delay to show the analysis stage
       await new Promise(resolve => setTimeout(resolve, 500));
       
+      updateProgress('Finalizing analysis...', 90);
+      
       setProcessedDoc(processed);
       onDocumentProcessed(processed);
+
+      updateProgress('Complete!', 100);
 
       // Start RAG indexing process
       await indexDocumentForRAG(processed);
       
     } catch (error) {
+      const errorDetails = parseError(error);
+      logError(error, { 
+        fileName: file.name, 
+        fileSize: file.size, 
+        fileType: file.type 
+      });
+      
       console.error('Document processing error:', error);
-      onError(error instanceof Error ? error.message : 'Failed to process document');
+      onError(errorDetails.userMessage);
     } finally {
       setIsProcessing(false);
       setProcessingStage('');
+      setProcessingProgress(0);
     }
   };
 
@@ -171,6 +208,9 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
       console.log('RAG indexing completed:', result);
 
     } catch (error) {
+      const errorDetails = parseError(error);
+      logError(error, { context: 'rag_indexing' });
+      
       console.error('RAG indexing error:', error);
       setIndexingStatus({
         isIndexing: false,
@@ -185,6 +225,12 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
     if (e.target.files && e.target.files[0]) {
       handleFileUpload(e.target.files[0]);
     }
+  };
+
+  const handleRemoveFile = () => {
+    setUploadedFile(null);
+    setProcessedDoc(null);
+    setIndexingStatus(null);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -230,11 +276,19 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
         
         <div className="space-y-4">
           {isProcessing ? (
-            <div className="flex flex-col items-center space-y-3">
-              <Loader2 className="h-12 w-12 text-blue-600 animate-spin" />
+            <div className="flex flex-col items-center space-y-4">
+              <LoadingSpinner size="lg" color="blue" />
               <div>
                 <p className="text-lg font-medium text-gray-900">Processing Document</p>
                 <p className="text-sm text-gray-600">{processingStage}</p>
+                {processingProgress > 0 && (
+                  <div className="w-64 bg-gray-200 rounded-full h-2 mt-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${processingProgress}%` }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -270,13 +324,22 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
                 <p className="text-sm font-medium text-gray-900 truncate">
                   {uploadedFile.name}
                 </p>
-                {processedDoc ? (
-                  <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-                ) : isProcessing ? (
-                  <Loader2 className="h-5 w-5 text-blue-600 animate-spin flex-shrink-0" />
-                ) : (
-                  <AlertCircle className="h-5 w-5 text-gray-400 flex-shrink-0" />
-                )}
+                <div className="flex items-center space-x-2">
+                  {processedDoc ? (
+                    <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                  ) : isProcessing ? (
+                    <LoadingSpinner size="sm" color="blue" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  )}
+                  <button
+                    onClick={handleRemoveFile}
+                    className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                    title="Remove file"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <p className="text-sm text-gray-500">
                 {formatFileSize(uploadedFile.size)} • {uploadedFile.type || 'Unknown type'}
@@ -302,7 +365,7 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium text-gray-900">RAG Indexing</h4>
                 {indexingStatus.isIndexing ? (
-                  <Loader2 className="h-4 w-4 text-purple-600 animate-spin" />
+                  <LoadingSpinner size="sm" color="blue" />
                 ) : indexingStatus.success ? (
                   <CheckCircle className="h-4 w-4 text-green-600" />
                 ) : (
@@ -311,7 +374,7 @@ export function DocumentUpload({ onDocumentProcessed, onError, disabled }: Docum
               </div>
               
               {indexingStatus.isIndexing ? (
-                <p className="text-sm text-gray-600">Creating document chunks and embeddings...</p>
+                <InlineLoading message="Creating document chunks and embeddings..." size="sm" />
               ) : (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">

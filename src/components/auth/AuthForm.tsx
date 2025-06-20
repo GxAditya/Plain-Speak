@@ -1,6 +1,6 @@
 /**
- * Authentication Form Component
- * Handles both sign-up and sign-in functionality with email/password
+ * Enhanced Authentication Form Component
+ * Handles both sign-up and sign-in functionality with comprehensive error handling
  */
 
 import React, { useState } from 'react';
@@ -16,13 +16,17 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { auth } from '../../utils/supabase';
+import { parseError, logError } from '../../utils/errorHandler';
+import { LoadingSpinner } from '../LoadingSpinner';
 
 interface AuthFormProps {
   onSuccess: () => void;
   onBack: () => void;
+  onError?: (error: string) => void;
+  onInfo?: (message: string) => void;
 }
 
-export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
+export function AuthForm({ onSuccess, onBack, onError, onInfo }: AuthFormProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,8 +38,17 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
   const [success, setSuccess] = useState<string | null>(null);
 
   const validateForm = () => {
+    setError(null);
+    
     if (!email || !password) {
       setError('Please fill in all fields');
+      return false;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
       return false;
     }
 
@@ -54,49 +67,64 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSuccess(null);
-
+    
     if (!validateForm()) return;
 
     setIsLoading(true);
+    setError(null);
+    setSuccess(null);
 
     try {
       if (isSignUp) {
-        const { data, error } = await auth.signUp(email, password);
+        const { data, error: authError } = await auth.signUp(email, password);
         
-        if (error) {
+        if (authError) {
+          const errorDetails = parseError(authError);
+          logError(authError, { action: 'sign_up', email });
+          
           // Provide more helpful error messages for common issues
-          if (error.message.includes('already registered')) {
+          if (authError.message.includes('already registered')) {
             setError('An account with this email already exists. Please sign in instead.');
+            onError?.('Account already exists. Please sign in instead.');
           } else {
-            setError(error.message);
+            setError(errorDetails.userMessage);
+            onError?.(errorDetails.userMessage);
           }
         } else if (data.user) {
           // Since email confirmation is disabled, proceed directly to success
           setSuccess('Account created successfully! Signing you in...');
+          onInfo?.('Account created successfully!');
           setTimeout(() => onSuccess(), 1500);
         }
       } else {
-        const { data, error } = await auth.signIn(email, password);
+        const { data, error: authError } = await auth.signIn(email, password);
         
-        if (error) {
+        if (authError) {
+          const errorDetails = parseError(authError);
+          logError(authError, { action: 'sign_in', email });
+          
           // Provide more helpful error messages for common sign-in issues
-          if (error.message.includes('Invalid login credentials')) {
+          if (authError.message.includes('Invalid login credentials')) {
             setError('The email or password you entered is incorrect. Please check your credentials and try again.');
-          } else if (error.message.includes('Email not confirmed')) {
+            onError?.('Invalid email or password. Please check your credentials.');
+          } else if (authError.message.includes('Email not confirmed')) {
             setError('Please check your email and click the confirmation link before signing in.');
+            onError?.('Please confirm your email address before signing in.');
           } else {
-            setError(error.message);
+            setError(errorDetails.userMessage);
+            onError?.(errorDetails.userMessage);
           }
         } else if (data.user) {
           setSuccess('Welcome back!');
+          onInfo?.('Successfully signed in!');
           setTimeout(() => onSuccess(), 1000);
         }
       }
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
-      console.error('Authentication error:', err);
+      const errorDetails = parseError(err);
+      logError(err, { action: isSignUp ? 'sign_up' : 'sign_in', email });
+      setError(errorDetails.userMessage);
+      onError?.(errorDetails.userMessage);
     } finally {
       setIsLoading(false);
     }
@@ -190,6 +218,7 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
                   className="block w-full pl-10 pr-3 py-3 border border-bolt-gray-300 rounded-lg focus:ring-2 focus:ring-bolt-blue-500 focus:border-transparent outline-none transition-all"
                   placeholder="Enter your email"
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -211,11 +240,13 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
                   className="block w-full pl-10 pr-10 py-3 border border-bolt-gray-300 rounded-lg focus:ring-2 focus:ring-bolt-blue-500 focus:border-transparent outline-none transition-all"
                   placeholder="Enter your password"
                   required
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  disabled={isLoading}
                 >
                   {showPassword ? (
                     <EyeOff className="h-5 w-5 text-bolt-gray-400 hover:text-bolt-gray-600" />
@@ -244,11 +275,13 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
                     className="block w-full pl-10 pr-10 py-3 border border-bolt-gray-300 rounded-lg focus:ring-2 focus:ring-bolt-blue-500 focus:border-transparent outline-none transition-all"
                     placeholder="Confirm your password"
                     required
+                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                    disabled={isLoading}
                   >
                     {showConfirmPassword ? (
                       <EyeOff className="h-5 w-5 text-bolt-gray-400 hover:text-bolt-gray-600" />
@@ -267,10 +300,7 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
               className="w-full bg-bolt-blue-600 hover:bg-bolt-blue-700 disabled:bg-bolt-gray-400 text-white py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center space-x-2"
             >
               {isLoading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>{isSignUp ? 'Creating account...' : 'Signing in...'}</span>
-                </>
+                <LoadingSpinner size="sm" color="white" text={isSignUp ? 'Creating account...' : 'Signing in...'} />
               ) : (
                 <span>{isSignUp ? 'Create account' : 'Sign in'}</span>
               )}
@@ -284,6 +314,7 @@ export function AuthForm({ onSuccess, onBack }: AuthFormProps) {
               <button
                 onClick={toggleMode}
                 className="text-bolt-blue-600 hover:text-bolt-blue-700 font-medium transition-colors"
+                disabled={isLoading}
               >
                 {isSignUp ? 'Sign in' : 'Sign up'}
               </button>
