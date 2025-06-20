@@ -38,63 +38,96 @@ export function useAuth(): UseAuthReturn {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     // Get initial session and user profile
     const getInitialSession = async () => {
       try {
-        const { data: { user: authUser }, error } = await auth.getCurrentUser();
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+        
         if (error) {
           // Handle "Auth session missing!" as expected behavior, not a critical error
           if (error.message === 'Auth session missing!') {
             console.log('No active session found - user not logged in');
           } else {
-            console.error('Error getting user:', error);
+            console.error('Error getting session:', error);
           }
-        } else if (authUser) {
-          const enhancedUser = await fetchUserProfile(authUser);
-          setUser(enhancedUser);
+        }
+
+        if (mounted) {
+          setSession(currentSession);
+          
+          if (currentSession?.user) {
+            const enhancedUser = await fetchUserProfile(currentSession.user);
+            setUser(enhancedUser);
+          } else {
+            setUser(null);
+          }
+          
+          setLoading(false);
         }
       } catch (error) {
         console.error('Error in getInitialSession:', error);
-      } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     getInitialSession();
 
     // Listen for auth changes
-    const { data: { subscription } } = auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.email);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        console.log('Auth state changed:', event, newSession?.user?.email);
         
-        setSession(session);
-        setLoading(false);
+        if (!mounted) return;
 
-        if (session?.user) {
+        setSession(newSession);
+
+        if (newSession?.user) {
           // Fetch user profile when user signs in
-          const enhancedUser = await fetchUserProfile(session.user);
-          setUser(enhancedUser);
+          try {
+            const enhancedUser = await fetchUserProfile(newSession.user);
+            setUser(enhancedUser);
+          } catch (error) {
+            console.error('Error fetching user profile after auth change:', error);
+            // Still set the basic user info even if profile fetch fails
+            setUser({
+              ...newSession.user,
+              profile: undefined,
+              isAdmin: false
+            });
+          }
         } else {
           setUser(null);
         }
 
+        // Ensure loading is set to false after any auth state change
+        setLoading(false);
+
         // Handle specific auth events
         if (event === 'SIGNED_IN') {
-          console.log('User signed in:', session?.user?.email);
+          console.log('User signed in:', newSession?.user?.email);
         } else if (event === 'SIGNED_OUT') {
           console.log('User signed out');
         } else if (event === 'TOKEN_REFRESHED') {
           console.log('Token refreshed');
           // Refresh profile data on token refresh
-          if (session?.user) {
-            const enhancedUser = await fetchUserProfile(session.user);
-            setUser(enhancedUser);
+          if (newSession?.user) {
+            try {
+              const enhancedUser = await fetchUserProfile(newSession.user);
+              setUser(enhancedUser);
+            } catch (error) {
+              console.error('Error refreshing profile after token refresh:', error);
+            }
           }
         }
       }
     );
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -112,6 +145,48 @@ export function useAuth(): UseAuthReturn {
 
       if (error) {
         console.warn('Error fetching user profile:', error);
+        
+        // If profile doesn't exist, try to create it
+        if (error.code === 'PGRST116') {
+          console.log('Profile not found, attempting to create...');
+          try {
+            const { data: newProfile, error: createError } = await supabase
+              .from('profiles')
+              .insert({
+                id: authUser.id,
+                email: authUser.email || '',
+                role: 'user',
+                user_tier: 'free',
+                has_gemini_key: false,
+                daily_uploads_count: 0
+              })
+              .select()
+              .single();
+
+            if (createError) {
+              console.error('Error creating profile:', createError);
+              return {
+                ...authUser,
+                profile: undefined,
+                isAdmin: false
+              };
+            }
+
+            return {
+              ...authUser,
+              profile: newProfile,
+              isAdmin: newProfile?.role === 'admin'
+            };
+          } catch (createError) {
+            console.error('Error in profile creation:', createError);
+            return {
+              ...authUser,
+              profile: undefined,
+              isAdmin: false
+            };
+          }
+        }
+        
         // Return user without profile if profile fetch fails
         return {
           ...authUser,
@@ -207,11 +282,15 @@ export function useAuth(): UseAuthReturn {
   const signOut = async () => {
     try {
       setLoading(true);
-      const { error } = await auth.signOut();
+      const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Error signing out:', error);
         throw error;
       }
+      
+      // Clear user state immediately
+      setUser(null);
+      setSession(null);
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;

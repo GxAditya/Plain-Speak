@@ -105,7 +105,11 @@ export function AuthForm({ onSuccess, onBack, onError, onInfo }: AuthFormProps) 
         } else if (data.user) {
           setSuccess('Account created successfully! Signing you in...');
           onInfo?.('Account created successfully!');
-          setTimeout(() => onSuccess(), 1500);
+          
+          // Wait a moment for the auth state to update, then call onSuccess
+          setTimeout(() => {
+            onSuccess();
+          }, 1000);
         }
       } else if (authMode === 'signIn') {
         const { data, error: authError } = await auth.signIn(email, password);
@@ -127,7 +131,11 @@ export function AuthForm({ onSuccess, onBack, onError, onInfo }: AuthFormProps) 
         } else if (data.user) {
           setSuccess('Welcome back!');
           onInfo?.('Successfully signed in!');
-          setTimeout(() => onSuccess(), 1000);
+          
+          // Wait a moment for the auth state to update, then call onSuccess
+          setTimeout(() => {
+            onSuccess();
+          }, 500);
         }
       } else if (authMode === 'forgotPassword') {
         const { error: resetError } = await auth.resetPasswordForEmail(email);
