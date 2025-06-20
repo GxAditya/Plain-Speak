@@ -31,6 +31,7 @@ import { DocumentUpload } from './components/DocumentUpload';
 import { LandingPage } from './components/LandingPage';
 import { AuthForm } from './components/auth/AuthForm';
 import { UserDashboard } from './components/UserDashboard';
+import { AdminPanel } from './components/AdminPanel';
 import { Notification } from './components/Notification';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FullPageLoading } from './components/LoadingSpinner';
@@ -210,6 +211,7 @@ function App() {
   const [showLanding, setShowLanding] = useState(true);
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [currentTool, setCurrentTool] = useState<string | null>(null);
   const [processedDocument, setProcessedDocument] = useState<ProcessedDocument | null>(null);
   const [messages, setMessages] = useState<Array<{type: 'user' | 'assistant', content: string, isDeepThinking?: boolean, fromCache?: boolean}>>([]);
@@ -269,6 +271,7 @@ function App() {
     setShowLanding(true);
     setShowAuth(false);
     setShowDashboard(false);
+    setShowAdminPanel(false);
     setCurrentTool(null);
     setMessages([]);
     setProcessedDocument(null);
@@ -281,6 +284,7 @@ function App() {
       await signOut();
       setShowLanding(true);
       setShowDashboard(false);
+      setShowAdminPanel(false);
       setCurrentTool(null);
       setMessages([]);
       setProcessedDocument(null);
@@ -297,6 +301,7 @@ function App() {
   const handleToolSelect = (toolId: string) => {
     setCurrentTool(toolId);
     setShowDashboard(false);
+    setShowAdminPanel(false);
     setMessages([]);
     setProcessedDocument(null);
     setInputText('');
@@ -310,11 +315,26 @@ function App() {
 
   const handleShowDashboard = () => {
     setShowDashboard(true);
+    setShowAdminPanel(false);
     setCurrentTool(null);
     setMessages([]);
     setProcessedDocument(null);
     setInputText('');
     setError(null);
+  };
+
+  const handleShowAdminPanel = () => {
+    if (user?.isAdmin) {
+      setShowAdminPanel(true);
+      setShowDashboard(false);
+      setCurrentTool(null);
+      setMessages([]);
+      setProcessedDocument(null);
+      setInputText('');
+      setError(null);
+    } else {
+      showError('Access Denied', 'You do not have permission to access the admin panel.');
+    }
   };
 
   const handleDocumentProcessed = (document: ProcessedDocument) => {
@@ -417,8 +437,18 @@ I'm now ready to answer any questions about the content, explain complex terms, 
           <LandingPage onGetStarted={handleGetStarted} />
         )}
 
+        {/* Show admin panel */}
+        {showAdminPanel && user?.isAdmin && !showLanding && !showAuth && (
+          <AdminPanel 
+            user={user} 
+            onBack={() => setShowAdminPanel(false)}
+            onError={(error) => showError('Admin Panel Error', error)}
+            onSuccess={(message) => showSuccess('Success', message)}
+          />
+        )}
+
         {/* Show dashboard */}
-        {showDashboard && user && !showLanding && !showAuth && (
+        {showDashboard && user && !showLanding && !showAuth && !showAdminPanel && (
           <UserDashboard 
             user={user} 
             onBack={() => setShowDashboard(false)}
@@ -427,7 +457,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
         )}
 
         {/* Show tool interface */}
-        {currentTool && !showLanding && !showAuth && !showDashboard && (() => {
+        {currentTool && !showLanding && !showAuth && !showDashboard && !showAdminPanel && (() => {
           const selectedTool = tools.find(tool => tool.id === currentTool);
           if (!selectedTool) return null;
 
@@ -470,7 +500,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
                       {/* Admin Panel Button - Only show for admins */}
                       {user?.isAdmin && (
                         <button
-                          onClick={() => showInfo('Admin Panel', 'Admin panel coming soon!')}
+                          onClick={handleShowAdminPanel}
                           className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
                         >
                           <Settings className="h-4 w-4" />
@@ -696,7 +726,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
         })()}
 
         {/* Show tools grid when not in any specific mode */}
-        {!showLanding && !showAuth && !showDashboard && !currentTool && (
+        {!showLanding && !showAuth && !showDashboard && !showAdminPanel && !currentTool && (
           <div className="min-h-screen bg-gradient-to-br from-bolt-blue-50 via-white to-bolt-blue-50">
             {/* Header */}
             <div className="bg-white/80 backdrop-blur-sm shadow-sm border-b border-bolt-gray-100">
@@ -738,7 +768,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
                         {/* Admin Panel Button - Only show for admins */}
                         {user.isAdmin && (
                           <button
-                            onClick={() => showInfo('Admin Panel', 'Admin panel coming soon!')}
+                            onClick={handleShowAdminPanel}
                             className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
                           >
                             <Settings className="h-4 w-4" />
