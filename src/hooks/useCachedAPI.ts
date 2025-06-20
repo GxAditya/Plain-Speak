@@ -1,10 +1,11 @@
 /**
- * Enhanced Custom hook for cached API calls with RAG support
- * Integrates with the refined AI model system and handles enhanced response metadata
+ * Enhanced Custom hook for cached API calls with history tracking
+ * Integrates with the user history system to automatically save interactions
  */
 
 import { useState, useCallback } from 'react';
 import { frontendCache } from '../utils/cache';
+import { useHistory } from './useHistory';
 
 interface UseCachedAPIOptions {
   toolId: string;
@@ -34,14 +35,14 @@ interface EnhancedAPIResponse {
     hasExamples: boolean;
     hasActionableAdvice: boolean;
     citesDocuments: boolean;
-    [key: string]: any; // Allow for tool-specific metadata
+    [key: string]: any;
   };
   timestamp: string;
   processingInfo?: {
     ragChunksUsed?: number;
     modelSelectionReason?: string;
     promptTokensEstimate?: number;
-    [key: string]: any; // Allow for tool-specific processing info
+    [key: string]: any;
   };
   fromCache?: boolean;
 }
@@ -49,6 +50,7 @@ interface EnhancedAPIResponse {
 export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions): UseCachedAPIReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { saveInteraction } = useHistory();
 
   const callAPI = useCallback(async (
     query: string,
@@ -77,6 +79,8 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
 
     console.log(`Cache miss for ${toolId}, making API call:`, query.substring(0, 50) + '...');
     setIsLoading(true);
+
+    const startTime = Date.now();
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -154,6 +158,8 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
       const data: EnhancedAPIResponse = await response.json();
       
       if (data.response) {
+        const processingTime = Date.now() - startTime;
+        
         // Enhance response with client-side metadata
         const enhancedData: EnhancedAPIResponse = {
           ...data,
@@ -171,13 +177,40 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
           data.modelUsed
         );
 
+        // Save interaction to history (only if user is authenticated)
+        if (session?.access_token) {
+          try {
+            await saveInteraction({
+              toolId,
+              queryText: query,
+              responseText: data.response,
+              documentId: undefined, // Could be enhanced to track document IDs
+              modelUsed: data.modelUsed,
+              queryComplexity: data.queryComplexity || 0,
+              responseQuality: determineResponseQuality(data),
+              processingTime,
+              metadata: {
+                hasDocument: !!documentContent,
+                ragEnhanced: data.ragEnhanced || false,
+                isDeepThinking,
+                responseMetadata: data.responseMetadata,
+                processingInfo: data.processingInfo,
+                cacheKey: cacheKey.substring(0, 50)
+              }
+            });
+          } catch (historyError) {
+            // Don't fail the main request if history saving fails
+            console.warn('Failed to save interaction to history:', historyError);
+          }
+        }
+
         // Log enhanced response info for debugging
         console.log(`Enhanced API Response for ${toolId}:`, {
           modelUsed: data.modelUsed,
           queryComplexity: data.queryComplexity,
           ragEnhanced: data.ragEnhanced,
           responseQuality: data.responseMetadata?.hasActionableAdvice ? 'high' : 'standard',
-          processingTime: data.processingInfo?.promptTokensEstimate ? `~${data.processingInfo.promptTokensEstimate} tokens` : 'unknown'
+          processingTime: `${processingTime}ms`
         });
 
         onSuccess?.(enhancedData, false);
@@ -196,7 +229,7 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
     } finally {
       setIsLoading(false);
     }
-  }, [toolId, onSuccess, onError]);
+  }, [toolId, onSuccess, onError, saveInteraction]);
 
   const clearToolCache = useCallback(() => {
     // Clear cache entries for the specific tool
@@ -243,4 +276,24 @@ function hashString(str: string): string {
     hash = hash & hash; // Convert to 32-bit integer
   }
   return Math.abs(hash).toString(36);
+}
+
+/**
+ * Determine response quality based on metadata
+ */
+function determineResponseQuality(data: EnhancedAPIResponse): 'low' | 'standard' | 'high' {
+  const metadata = data.responseMetadata;
+  
+  if (!metadata) return 'standard';
+  
+  let qualityScore = 0;
+  
+  if (metadata.hasExamples) qualityScore += 1;
+  if (metadata.hasActionableAdvice) qualityScore += 2;
+  if (metadata.citesDocuments) qualityScore += 1;
+  if (metadata.wordCount > 200) qualityScore += 1;
+  
+  if (qualityScore >= 4) return 'high';
+  if (qualityScore >= 2) return 'standard';
+  return 'low';
 }

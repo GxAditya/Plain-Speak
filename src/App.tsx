@@ -19,7 +19,8 @@ import {
   Brain,
   Zap,
   LogOut,
-  User
+  User,
+  BarChart3
 } from 'lucide-react';
 import { useCachedAPI } from './hooks/useCachedAPI';
 import { useAuth } from './hooks/useAuth';
@@ -27,6 +28,7 @@ import { CacheStats } from './components/CacheStats';
 import { DocumentUpload } from './components/DocumentUpload';
 import { LandingPage } from './components/LandingPage';
 import { AuthForm } from './components/auth/AuthForm';
+import { UserDashboard } from './components/UserDashboard';
 import { cleanAIResponse } from './utils/textCleaner';
 import { ProcessedDocument } from './utils/documentProcessor';
 
@@ -192,6 +194,7 @@ function App() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [showLanding, setShowLanding] = useState(true);
   const [showAuth, setShowAuth] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
   const [currentTool, setCurrentTool] = useState<string | null>(null);
   const [processedDocument, setProcessedDocument] = useState<ProcessedDocument | null>(null);
   const [messages, setMessages] = useState<Array<{type: 'user' | 'assistant', content: string, isDeepThinking?: boolean, fromCache?: boolean}>>([]);
@@ -234,6 +237,7 @@ function App() {
   const handleBackToLanding = () => {
     setShowLanding(true);
     setShowAuth(false);
+    setShowDashboard(false);
     setCurrentTool(null);
     setMessages([]);
     setProcessedDocument(null);
@@ -245,6 +249,7 @@ function App() {
     try {
       await signOut();
       setShowLanding(true);
+      setShowDashboard(false);
       setCurrentTool(null);
       setMessages([]);
       setProcessedDocument(null);
@@ -257,6 +262,16 @@ function App() {
 
   const handleToolSelect = (toolId: string) => {
     setCurrentTool(toolId);
+    setShowDashboard(false);
+    setMessages([]);
+    setProcessedDocument(null);
+    setInputText('');
+    setError(null);
+  };
+
+  const handleShowDashboard = () => {
+    setShowDashboard(true);
+    setCurrentTool(null);
     setMessages([]);
     setProcessedDocument(null);
     setInputText('');
@@ -343,6 +358,11 @@ I'm now ready to answer any questions about the content, explain complex terms, 
     return <LandingPage onGetStarted={handleGetStarted} />;
   }
 
+  // Show dashboard
+  if (showDashboard && user) {
+    return <UserDashboard user={user} onBack={() => setShowDashboard(false)} />;
+  }
+
   const selectedTool = tools.find(tool => tool.id === currentTool);
 
   if (currentTool && selectedTool) {
@@ -355,7 +375,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
               <button
-                onClick={handleBackToLanding}
+                onClick={() => setCurrentTool(null)}
                 className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -617,6 +637,14 @@ I'm now ready to answer any questions about the content, explain complex terms, 
               
               {user && (
                 <div className="flex items-center space-x-4">
+                  <button
+                    onClick={handleShowDashboard}
+                    className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Dashboard</span>
+                  </button>
+                  
                   <div className="flex items-center space-x-2 text-sm text-bolt-gray-600">
                     <User className="h-4 w-4" />
                     <span className="hidden sm:inline">{user.email}</span>
