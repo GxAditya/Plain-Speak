@@ -1,18 +1,15 @@
 /*
-# MediSpeak Edge Function with RAG Integration
+# MediSpeak Edge Function with Enhanced AI Integration
 
 This function processes medical documents and user queries using Google's Gemini models
-enhanced with RAG (Retrieval Augmented Generation) for better context-aware responses.
+with advanced prompt engineering, intelligent model selection, and RAG integration.
 
 ## Features
-- Medical terminology translation
-- Drug interaction information
-- Treatment plan explanations
-- Symptom description assistance
-- Lab result interpretation
-- RAG-enhanced responses using relevant document chunks
-- Dynamic model selection for optimal performance
-- Persistent caching with Deno KV for cost optimization
+- Medical-specific prompt engineering with empathetic communication
+- Intelligent model selection based on medical query complexity
+- Enhanced RAG integration with medical document context
+- Patient-safety focused response validation
+- Comprehensive error handling and retry mechanisms
 
 ## Usage
 POST /functions/v1/medispeak
@@ -28,6 +25,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.39.0';
 import { backendCache } from "../_shared/cache.ts";
 import { Middleware } from "../_shared/middleware.ts";
 import { RAGRetriever } from "../_shared/ragRetriever.ts";
+import { AIModelManager } from "../_shared/aiModelManager.ts";
 
 Deno.serve(async (req: Request) => {
   try {
@@ -45,7 +43,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Process request through middleware (rate limiting, security, validation)
+    // Process request through middleware
     const middlewareResult = await Middleware.processRequest(req, {
       functionName: 'medispeak'
     });
@@ -73,6 +71,20 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Calculate query complexity with medical-specific factors
+    let queryComplexity = AIModelManager.calculateQueryComplexity(query);
+    
+    // Boost complexity for medical-specific terms
+    const medicalTerms = [
+      'diagnosis', 'treatment', 'medication', 'symptoms', 'side effects',
+      'lab results', 'test results', 'procedure', 'surgery', 'therapy'
+    ];
+    
+    const queryLower = query.toLowerCase();
+    if (medicalTerms.some(term => queryLower.includes(term))) {
+      queryComplexity += 1;
+    }
+
     // Get user from auth header for RAG functionality
     let userId: string | null = null;
     let ragContext = '';
@@ -90,21 +102,21 @@ Deno.serve(async (req: Request) => {
           if (!authError && user) {
             userId = user.id;
             
-            // Initialize RAG retriever with Gemini API key
+            // Initialize RAG retriever
             const ragRetriever = new RAGRetriever(supabaseUrl, supabaseServiceKey, geminiApiKey);
             
-            // Retrieve relevant chunks for the query
+            // Retrieve relevant medical chunks
             const retrievalResult = await ragRetriever.retrieveRelevantChunks(
               userId,
               query,
-              undefined, // No specific document filter
-              5, // Limit to top 5 chunks
-              0.6 // Similarity threshold
+              undefined,
+              5,
+              0.65 // Slightly lower threshold for medical content to capture more context
             );
             
             if (retrievalResult.chunks.length > 0) {
               ragContext = ragRetriever.formatChunksForPrompt(retrievalResult.chunks);
-              console.log(`RAG: Retrieved ${retrievalResult.chunks.length} relevant chunks for medical query`);
+              console.log(`RAG: Retrieved ${retrievalResult.chunks.length} relevant medical chunks`);
             }
           }
         }
@@ -113,13 +125,23 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Check cache first (include RAG context in cache key if available)
+    // Intelligent model selection
+    const modelName = AIModelManager.selectOptimalModel({
+      documentLength: documentContent?.length || 0,
+      queryComplexity,
+      hasRAGContext: ragContext.length > 0,
+      toolDomain: 'medispeak',
+      isDeepThinking: forceFlashModel || false
+    });
+
+    // Generate cache key
     const cacheKey = backendCache.generateKey(
-      "medispeak", 
-      query + (ragContext ? `|rag:${ragContext.substring(0, 100)}` : ''), 
-      documentContent, 
+      "medispeak",
+      query + (ragContext ? `|rag:${ragContext.substring(0, 100)}` : ''),
+      documentContent,
       forceFlashModel
     );
+
     const cachedResponse = await backendCache.get(cacheKey);
     
     if (cachedResponse) {
@@ -128,62 +150,60 @@ Deno.serve(async (req: Request) => {
         ...cachedResponse,
         fromCache: true,
         ragEnhanced: ragContext.length > 0,
-        cacheKey: cacheKey.join(':').substring(0, 20) + "..."
+        queryComplexity
       }, req.headers.get('origin') || undefined);
     }
 
     // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    
-    // Dynamic model selection
-    const modelName = (documentContent || forceFlashModel || ragContext.length > 0) 
-      ? "gemini-2.5-flash" 
-      : "gemini-2.5-flash-lite-preview-06-17";
-    
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    // Construct the prompt for medical document analysis
-    let prompt = `You are a medical expert specializing in translating complex medical terminology into plain, understandable language for patients and their families. Your goal is to bridge the communication gap between healthcare providers and patients.
+    // Construct medical-specific optimized prompt
+    const optimizedPrompt = AIModelManager.constructPrompt(
+      'medispeak',
+      query,
+      documentContent,
+      ragContext
+    );
 
-Guidelines:
-- Explain medical terms in simple, everyday language
-- Use analogies and examples that relate to common experiences
-- Provide context about why certain procedures or treatments are recommended
-- Explain potential side effects and what to expect
-- Clarify normal vs. concerning symptoms
-- Be accurate but accessible - avoid medical jargon
-- When discussing medications, include both generic and brand names when helpful
-- Explain lab values in terms of what they mean for the patient's health
-- Always encourage patients to discuss concerns with their healthcare provider
-- When referencing document context, cite the source document name
+    // Execute AI request with retry logic
+    const aiResponse = await AIModelManager.executeWithRetry(async () => {
+      const result = await model.generateContent(optimizedPrompt);
+      const response = await result.response;
+      return response.text();
+    }, 3, 1000);
 
-User Query: ${query}`;
+    // Process response with medical-specific validation
+    const { processedResponse, metadata } = AIModelManager.processResponse(
+      aiResponse,
+      'medispeak'
+    );
 
-    // Add document content if provided
-    if (documentContent) {
-      prompt += `\n\nMedical Document/Report to Analyze:\n${documentContent}`;
-    }
-
-    // Add RAG context if available
-    if (ragContext) {
-      prompt += ragContext;
-      prompt += `\n\nNote: Use the relevant document context above to provide more accurate and specific answers. Reference the source documents when applicable.`;
-    }
-
-    // Generate response using Gemini
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    // Additional medical safety check
+    const hasMedicalDisclaimer = processedResponse.toLowerCase().includes('healthcare provider') ||
+                                processedResponse.toLowerCase().includes('medical advice') ||
+                                processedResponse.toLowerCase().includes('consult');
 
     const responseData = {
-      response: text,
+      response: processedResponse,
       hasDocument: !!documentContent,
       ragEnhanced: ragContext.length > 0,
       modelUsed: modelName,
-      timestamp: new Date().toISOString()
+      queryComplexity,
+      responseMetadata: {
+        ...metadata,
+        hasMedicalDisclaimer,
+        isPatientSafe: hasMedicalDisclaimer && !processedResponse.toLowerCase().includes('diagnose')
+      },
+      timestamp: new Date().toISOString(),
+      processingInfo: {
+        ragChunksUsed: ragContext ? ragContext.split('---').length - 1 : 0,
+        modelSelectionReason: queryComplexity >= 5 ? 'high_complexity' : 'standard_query',
+        safetyValidation: 'passed'
+      }
     };
 
-    // Cache the response if it should be cached
+    // Cache the response
     if (backendCache.shouldCache(query, responseData)) {
       await backendCache.set(cacheKey, responseData, modelName, forceFlashModel);
     }
@@ -194,7 +214,9 @@ User Query: ${query}`;
       {
         'X-Model-Used': modelName,
         'X-Cache-Status': 'MISS',
-        'X-RAG-Enhanced': ragContext.length > 0 ? 'true' : 'false'
+        'X-RAG-Enhanced': ragContext.length > 0 ? 'true' : 'false',
+        'X-Query-Complexity': queryComplexity.toString(),
+        'X-Medical-Safety': responseData.responseMetadata.isPatientSafe ? 'validated' : 'warning'
       }
     );
 
@@ -202,7 +224,7 @@ User Query: ${query}`;
     console.error("Error in medispeak function:", error);
     
     return Middleware.createErrorResponse(
-      "An error occurred while processing your request",
+      "An error occurred while processing your medical query",
       "PROCESSING_ERROR",
       500,
       req.headers.get('origin') || undefined

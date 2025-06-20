@@ -1,17 +1,15 @@
 /*
-# HomeLingo Edge Function
+# HomeLingo Edge Function with Enhanced AI Integration
 
-This function processes real estate documents and queries using Google's Gemini models.
-It provides plain-English explanations of real estate contracts, market terms, and property transactions.
+This function processes real estate documents and queries using Google's Gemini models
+with real estate-specific prompt engineering and intelligent model selection.
 
 ## Features
-- Real estate contract analysis
-- Market term explanations
-- Closing process guidance
-- Property value factor explanations
-- Negotiation point identification
-- Dynamic model selection for optimal performance
-- Persistent caching with Deno KV for cost optimization
+- Real estate-specific prompt engineering with market awareness
+- Property transaction and contract expertise
+- Intelligent model selection for real estate queries
+- Market-focused response validation
+- Cost and timeline estimation for real estate processes
 
 ## Usage
 POST /functions/v1/homelingo
@@ -24,119 +22,136 @@ Body: {
 
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { backendCache } from "../_shared/cache.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-interface RequestPayload {
-  query: string;
-  documentContent?: string;
-  forceFlashModel?: boolean;
-}
+import { Middleware } from "../_shared/middleware.ts";
+import { AIModelManager } from "../_shared/aiModelManager.ts";
 
 Deno.serve(async (req: Request) => {
   try {
+    // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 200,
-        headers: corsHeaders,
-      });
+      return Middleware.handleCORS(req.headers.get('origin') || undefined);
     }
 
     if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        {
-          status: 405,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Method not allowed",
+        "METHOD_NOT_ALLOWED",
+        405,
+        req.headers.get('origin') || undefined
       );
     }
+
+    // Process request through middleware
+    const middlewareResult = await Middleware.processRequest(req, {
+      functionName: 'homelingo'
+    });
+
+    if (!middlewareResult.allowed) {
+      return middlewareResult.response!;
+    }
+
+    const { query, documentContent, forceFlashModel } = middlewareResult.sanitizedBody!;
 
     // Initialize cache
     await backendCache.init();
 
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiApiKey) {
-      return new Response(
-        JSON.stringify({ error: "Gemini API key not configured" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Gemini API key not configured",
+        "API_KEY_MISSING",
+        500,
+        req.headers.get('origin') || undefined
       );
     }
 
-    const { query, documentContent, forceFlashModel }: RequestPayload = await req.json();
-
-    if (!query) {
-      return new Response(
-        JSON.stringify({ error: "Query is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    // Calculate query complexity with real estate-specific factors
+    let queryComplexity = AIModelManager.calculateQueryComplexity(query);
+    
+    // Boost complexity for real estate terms
+    const realEstateComplexityIndicators = [
+      'contract', 'closing', 'escrow', 'contingency', 'appraisal',
+      'inspection', 'mortgage', 'deed', 'title', 'earnest money'
+    ];
+    
+    const queryLower = query.toLowerCase();
+    if (realEstateComplexityIndicators.some(indicator => queryLower.includes(indicator))) {
+      queryComplexity += 1;
     }
 
-    // Check cache first
+    // Intelligent model selection
+    const modelName = AIModelManager.selectOptimalModel({
+      documentLength: documentContent?.length || 0,
+      queryComplexity,
+      hasRAGContext: false,
+      toolDomain: 'homelingo',
+      isDeepThinking: forceFlashModel || false
+    });
+
+    // Check cache
     const cacheKey = backendCache.generateKey("homelingo", query, documentContent, forceFlashModel);
     const cachedResponse = await backendCache.get(cacheKey);
     
     if (cachedResponse) {
       console.log('Serving cached response for homelingo');
-      return new Response(
-        JSON.stringify({
-          ...cachedResponse,
-          fromCache: true
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return Middleware.createSuccessResponse({
+        ...cachedResponse,
+        fromCache: true,
+        queryComplexity
+      }, req.headers.get('origin') || undefined);
     }
 
+    // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    
-    // Dynamic model selection
-    const modelName = (documentContent || forceFlashModel) 
-      ? "gemini-2.5-flash" 
-      : "gemini-2.5-flash-lite-preview-06-17";
-    
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    let prompt = `You are a real estate expert specializing in helping buyers and sellers understand property transactions, contracts, and market terminology. Your goal is to make real estate processes transparent and accessible for everyone involved.
+    // Construct real estate-specific optimized prompt
+    const optimizedPrompt = AIModelManager.constructPrompt(
+      'homelingo',
+      query,
+      documentContent
+    );
 
-Guidelines:
-- Explain real estate terms and processes in simple, everyday language
-- Break down contract clauses and their implications for buyers/sellers
-- Provide context about market conditions and their impact
-- Explain closing processes step-by-step with timelines
-- Highlight potential risks or red flags in contracts
-- Explain costs, fees, and who typically pays what
-- Provide negotiation insights and common practices
-- Use analogies to explain complex concepts
-- Explain the roles of different professionals (agents, inspectors, appraisers, etc.)
-- Include typical timeframes and what to expect at each stage
+    // Execute AI request with retry logic
+    const aiResponse = await AIModelManager.executeWithRetry(async () => {
+      const result = await model.generateContent(optimizedPrompt);
+      const response = await result.response;
+      return response.text();
+    }, 3, 1000);
 
-User Query: ${query}`;
+    // Process response with real estate-specific validation
+    const { processedResponse, metadata } = AIModelManager.processResponse(
+      aiResponse,
+      'homelingo'
+    );
 
-    if (documentContent) {
-      prompt += `\n\nReal Estate Document to Analyze:\n${documentContent}`;
-    }
+    // Additional real estate quality checks
+    const hasMarketContext = processedResponse.toLowerCase().includes('market') ||
+                            processedResponse.toLowerCase().includes('typical') ||
+                            processedResponse.toLowerCase().includes('common');
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const hasTimelineInfo = processedResponse.toLowerCase().includes('days') ||
+                           processedResponse.toLowerCase().includes('weeks') ||
+                           processedResponse.toLowerCase().includes('timeline');
 
     const responseData = {
-      response: text,
+      response: processedResponse,
       hasDocument: !!documentContent,
-      modelUsed: modelName
+      ragEnhanced: false,
+      modelUsed: modelName,
+      queryComplexity,
+      responseMetadata: {
+        ...metadata,
+        hasMarketContext,
+        hasTimelineInfo,
+        isRealEstateOptimized: hasMarketContext && metadata.hasActionableAdvice
+      },
+      timestamp: new Date().toISOString(),
+      processingInfo: {
+        modelSelectionReason: queryComplexity >= 5 ? 'high_complexity' : 'standard_query',
+        realEstateComplexity: queryComplexity,
+        marketAwareness: 'applied'
+      }
     };
 
     // Cache the response
@@ -144,26 +159,25 @@ User Query: ${query}`;
       await backendCache.set(cacheKey, responseData, modelName, forceFlashModel);
     }
 
-    return new Response(
-      JSON.stringify(responseData),
+    return Middleware.createSuccessResponse(
+      responseData,
+      req.headers.get('origin') || undefined,
       {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        'X-Model-Used': modelName,
+        'X-Cache-Status': 'MISS',
+        'X-Query-Complexity': queryComplexity.toString(),
+        'X-RealEstate-Quality': responseData.responseMetadata.isRealEstateOptimized ? 'optimized' : 'standard'
       }
     );
 
   } catch (error) {
     console.error("Error in homelingo function:", error);
     
-    return new Response(
-      JSON.stringify({ 
-        error: "An error occurred while processing your request",
-        details: error.message 
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+    return Middleware.createErrorResponse(
+      "An error occurred while processing your real estate query",
+      "PROCESSING_ERROR",
+      500,
+      req.headers.get('origin') || undefined
     );
   }
 });

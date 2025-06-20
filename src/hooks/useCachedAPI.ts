@@ -1,6 +1,6 @@
 /**
- * Custom hook for cached API calls with RAG support
- * Integrates with the frontend cache system and handles document context
+ * Enhanced Custom hook for cached API calls with RAG support
+ * Integrates with the refined AI model system and handles enhanced response metadata
  */
 
 import { useState, useCallback } from 'react';
@@ -23,6 +23,29 @@ interface UseCachedAPIReturn {
   clearToolCache: () => void;
 }
 
+interface EnhancedAPIResponse {
+  response: string;
+  hasDocument: boolean;
+  ragEnhanced?: boolean;
+  modelUsed: string;
+  queryComplexity?: number;
+  responseMetadata?: {
+    wordCount: number;
+    hasExamples: boolean;
+    hasActionableAdvice: boolean;
+    citesDocuments: boolean;
+    [key: string]: any; // Allow for tool-specific metadata
+  };
+  timestamp: string;
+  processingInfo?: {
+    ragChunksUsed?: number;
+    modelSelectionReason?: string;
+    promptTokensEstimate?: number;
+    [key: string]: any; // Allow for tool-specific processing info
+  };
+  fromCache?: boolean;
+}
+
 export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions): UseCachedAPIReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,15 +57,25 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
   ) => {
     setError(null);
 
-    // Check cache first
+    // Check cache first with enhanced key generation
+    const cacheKey = generateEnhancedCacheKey(toolId, query, documentContent, isDeepThinking);
     const cachedResponse = frontendCache.get(toolId, query, documentContent, isDeepThinking);
+    
     if (cachedResponse) {
-      console.log('Cache hit for query:', query.substring(0, 50) + '...');
-      onSuccess?.(cachedResponse, true);
-      return cachedResponse;
+      console.log(`Cache hit for ${toolId}:`, query.substring(0, 50) + '...');
+      
+      // Enhance cached response with additional metadata
+      const enhancedCachedResponse: EnhancedAPIResponse = {
+        ...cachedResponse,
+        fromCache: true,
+        timestamp: cachedResponse.timestamp || new Date().toISOString()
+      };
+      
+      onSuccess?.(enhancedCachedResponse, true);
+      return enhancedCachedResponse;
     }
 
-    console.log('Cache miss, making API call for query:', query.substring(0, 50) + '...');
+    console.log(`Cache miss for ${toolId}, making API call:`, query.substring(0, 50) + '...');
     setIsLoading(true);
 
     try {
@@ -86,37 +119,77 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
         headers['Authorization'] = `Bearer ${session.access_token}`;
       }
 
+      const requestBody = {
+        query,
+        documentContent: documentContent || undefined,
+        forceFlashModel: isDeepThinking,
+        // Add metadata for enhanced processing
+        clientMetadata: {
+          timestamp: new Date().toISOString(),
+          toolId,
+          cacheKey: cacheKey.substring(0, 50) // Truncated for logging
+        }
+      };
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          query,
-          documentContent: documentContent || undefined,
-          forceFlashModel: isDeepThinking,
-          // Add cache headers for backend
-          'x-cache-key': frontendCache['generateKey'](toolId, query, documentContent, isDeepThinking)
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status}, response: ${errorText}`);
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      const data: EnhancedAPIResponse = await response.json();
       
-      if (data.error) {
-        throw new Error(data.error);
+      if (data.response) {
+        // Enhance response with client-side metadata
+        const enhancedData: EnhancedAPIResponse = {
+          ...data,
+          fromCache: false,
+          timestamp: data.timestamp || new Date().toISOString()
+        };
+
+        // Cache the successful response with enhanced metadata
+        frontendCache.set(
+          toolId, 
+          query, 
+          enhancedData, 
+          documentContent, 
+          isDeepThinking, 
+          data.modelUsed
+        );
+
+        // Log enhanced response info for debugging
+        console.log(`Enhanced API Response for ${toolId}:`, {
+          modelUsed: data.modelUsed,
+          queryComplexity: data.queryComplexity,
+          ragEnhanced: data.ragEnhanced,
+          responseQuality: data.responseMetadata?.hasActionableAdvice ? 'high' : 'standard',
+          processingTime: data.processingInfo?.promptTokensEstimate ? `~${data.processingInfo.promptTokensEstimate} tokens` : 'unknown'
+        });
+
+        onSuccess?.(enhancedData, false);
+        return enhancedData;
+      } else {
+        throw new Error('Invalid response format from API');
       }
-
-      // Cache the successful response
-      frontendCache.set(toolId, query, data, documentContent, isDeepThinking, data.modelUsed);
-
-      onSuccess?.(data, false);
-      return data;
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      console.error(`API Error for ${toolId}:`, err);
+      
       setError(errorMessage);
       onError?.(err instanceof Error ? err : new Error(errorMessage));
       throw err;
@@ -126,10 +199,10 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
   }, [toolId, onSuccess, onError]);
 
   const clearToolCache = useCallback(() => {
-    // This would clear cache entries for the specific tool
-    // For now, we'll clear the entire cache
+    // Clear cache entries for the specific tool
     frontendCache.clearCache();
-  }, []);
+    console.log(`Cache cleared for tool: ${toolId}`);
+  }, [toolId]);
 
   return {
     isLoading,
@@ -137,4 +210,37 @@ export function useCachedAPI({ toolId, onSuccess, onError }: UseCachedAPIOptions
     callAPI,
     clearToolCache
   };
+}
+
+/**
+ * Generate enhanced cache key that includes complexity and metadata
+ */
+function generateEnhancedCacheKey(
+  toolId: string, 
+  query: string, 
+  documentContent?: string, 
+  isDeepThinking?: boolean
+): string {
+  const components = [
+    toolId,
+    isDeepThinking ? 'deep' : 'standard',
+    hashString(query),
+    documentContent ? hashString(documentContent.substring(0, 1000)) : '', // Use first 1000 chars for hashing
+    new Date().toISOString().split('T')[0] // Add date for daily cache invalidation
+  ].filter(Boolean);
+
+  return components.join(':');
+}
+
+/**
+ * Simple hash function for cache key generation
+ */
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36);
 }

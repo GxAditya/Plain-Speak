@@ -1,17 +1,15 @@
 /*
-# PolicyPal Edge Function
+# PolicyPal Edge Function with Enhanced AI Integration
 
-This function processes insurance documents and queries using Google's Gemini models.
-It provides plain-English explanations of insurance policies, coverage, and claims processes.
+This function processes insurance documents and queries using Google's Gemini models
+with insurance-specific prompt engineering and intelligent model selection.
 
 ## Features
-- Insurance policy explanations
-- Coverage analysis with real scenarios
-- Claims process guidance
-- Premium optimization advice
-- Deductible impact calculations
-- Dynamic model selection for optimal performance
-- Persistent caching with Deno KV for cost optimization
+- Insurance-specific prompt engineering with coverage focus
+- Policy analysis and claims process expertise
+- Intelligent model selection for insurance queries
+- Coverage-focused response validation
+- Risk and cost analysis capabilities
 
 ## Usage
 POST /functions/v1/policypal
@@ -24,119 +22,136 @@ Body: {
 
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { backendCache } from "../_shared/cache.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-interface RequestPayload {
-  query: string;
-  documentContent?: string;
-  forceFlashModel?: boolean;
-}
+import { Middleware } from "../_shared/middleware.ts";
+import { AIModelManager } from "../_shared/aiModelManager.ts";
 
 Deno.serve(async (req: Request) => {
   try {
+    // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 200,
-        headers: corsHeaders,
-      });
+      return Middleware.handleCORS(req.headers.get('origin') || undefined);
     }
 
     if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        {
-          status: 405,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Method not allowed",
+        "METHOD_NOT_ALLOWED",
+        405,
+        req.headers.get('origin') || undefined
       );
     }
+
+    // Process request through middleware
+    const middlewareResult = await Middleware.processRequest(req, {
+      functionName: 'policypal'
+    });
+
+    if (!middlewareResult.allowed) {
+      return middlewareResult.response!;
+    }
+
+    const { query, documentContent, forceFlashModel } = middlewareResult.sanitizedBody!;
 
     // Initialize cache
     await backendCache.init();
 
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiApiKey) {
-      return new Response(
-        JSON.stringify({ error: "Gemini API key not configured" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Gemini API key not configured",
+        "API_KEY_MISSING",
+        500,
+        req.headers.get('origin') || undefined
       );
     }
 
-    const { query, documentContent, forceFlashModel }: RequestPayload = await req.json();
-
-    if (!query) {
-      return new Response(
-        JSON.stringify({ error: "Query is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    // Calculate query complexity with insurance-specific factors
+    let queryComplexity = AIModelManager.calculateQueryComplexity(query);
+    
+    // Boost complexity for insurance terms
+    const insuranceComplexityIndicators = [
+      'coverage', 'deductible', 'premium', 'claim', 'exclusion',
+      'policy', 'liability', 'underwriting', 'rider', 'beneficiary'
+    ];
+    
+    const queryLower = query.toLowerCase();
+    if (insuranceComplexityIndicators.some(indicator => queryLower.includes(indicator))) {
+      queryComplexity += 1;
     }
 
-    // Check cache first
+    // Intelligent model selection
+    const modelName = AIModelManager.selectOptimalModel({
+      documentLength: documentContent?.length || 0,
+      queryComplexity,
+      hasRAGContext: false,
+      toolDomain: 'policypal',
+      isDeepThinking: forceFlashModel || false
+    });
+
+    // Check cache
     const cacheKey = backendCache.generateKey("policypal", query, documentContent, forceFlashModel);
     const cachedResponse = await backendCache.get(cacheKey);
     
     if (cachedResponse) {
       console.log('Serving cached response for policypal');
-      return new Response(
-        JSON.stringify({
-          ...cachedResponse,
-          fromCache: true
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return Middleware.createSuccessResponse({
+        ...cachedResponse,
+        fromCache: true,
+        queryComplexity
+      }, req.headers.get('origin') || undefined);
     }
 
+    // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    
-    // Dynamic model selection
-    const modelName = (documentContent || forceFlashModel) 
-      ? "gemini-2.5-flash" 
-      : "gemini-2.5-flash-lite-preview-06-17";
-    
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    let prompt = `You are an insurance expert specializing in helping consumers understand their insurance policies, coverage options, and claims processes. Your goal is to make insurance accessible and help people get the protection they need.
+    // Construct insurance-specific optimized prompt
+    const optimizedPrompt = AIModelManager.constructPrompt(
+      'policypal',
+      query,
+      documentContent
+    );
 
-Guidelines:
-- Explain insurance terms and coverage in simple, everyday language
-- Use real-world scenarios to illustrate what is and isn't covered
-- Explain the claims process step-by-step with realistic timelines
-- Highlight important exclusions and limitations
-- Provide context about why certain coverage exists
-- Calculate real-world impact of deductibles and coverage limits
-- Compare different policy options with pros and cons
-- Explain how premiums are calculated and ways to optimize costs
-- Point out common misconceptions about coverage
-- Provide actionable advice for policy selection and claims
+    // Execute AI request with retry logic
+    const aiResponse = await AIModelManager.executeWithRetry(async () => {
+      const result = await model.generateContent(optimizedPrompt);
+      const response = await result.response;
+      return response.text();
+    }, 3, 1000);
 
-User Query: ${query}`;
+    // Process response with insurance-specific validation
+    const { processedResponse, metadata } = AIModelManager.processResponse(
+      aiResponse,
+      'policypal'
+    );
 
-    if (documentContent) {
-      prompt += `\n\nInsurance Policy/Document to Analyze:\n${documentContent}`;
-    }
+    // Additional insurance quality checks
+    const hasCoverageInfo = processedResponse.toLowerCase().includes('covered') ||
+                           processedResponse.toLowerCase().includes('coverage') ||
+                           processedResponse.toLowerCase().includes('protection');
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const hasExclusionWarning = processedResponse.toLowerCase().includes('exclusion') ||
+                               processedResponse.toLowerCase().includes('not covered') ||
+                               processedResponse.toLowerCase().includes('limitation');
 
     const responseData = {
-      response: text,
+      response: processedResponse,
       hasDocument: !!documentContent,
-      modelUsed: modelName
+      ragEnhanced: false,
+      modelUsed: modelName,
+      queryComplexity,
+      responseMetadata: {
+        ...metadata,
+        hasCoverageInfo,
+        hasExclusionWarning,
+        isInsuranceOptimized: hasCoverageInfo && metadata.hasActionableAdvice
+      },
+      timestamp: new Date().toISOString(),
+      processingInfo: {
+        modelSelectionReason: queryComplexity >= 5 ? 'high_complexity' : 'standard_query',
+        insuranceComplexity: queryComplexity,
+        coverageFocus: 'applied'
+      }
     };
 
     // Cache the response
@@ -144,26 +159,25 @@ User Query: ${query}`;
       await backendCache.set(cacheKey, responseData, modelName, forceFlashModel);
     }
 
-    return new Response(
-      JSON.stringify(responseData),
+    return Middleware.createSuccessResponse(
+      responseData,
+      req.headers.get('origin') || undefined,
       {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        'X-Model-Used': modelName,
+        'X-Cache-Status': 'MISS',
+        'X-Query-Complexity': queryComplexity.toString(),
+        'X-Insurance-Quality': responseData.responseMetadata.isInsuranceOptimized ? 'optimized' : 'standard'
       }
     );
 
   } catch (error) {
     console.error("Error in policypal function:", error);
     
-    return new Response(
-      JSON.stringify({ 
-        error: "An error occurred while processing your request",
-        details: error.message 
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+    return Middleware.createErrorResponse(
+      "An error occurred while processing your insurance query",
+      "PROCESSING_ERROR",
+      500,
+      req.headers.get('origin') || undefined
     );
   }
 });

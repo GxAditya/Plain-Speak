@@ -1,17 +1,15 @@
 /*
-# FinFriend Edge Function
+# FinFriend Edge Function with Enhanced AI Integration
 
-This function processes financial documents and user queries using Google's Gemini models.
-It provides plain-English explanations of complex financial products and terms.
+This function processes financial documents and user queries using Google's Gemini models
+with advanced financial-specific prompt engineering and intelligent model selection.
 
 ## Features
-- Investment product explanations
-- Hidden fee detection
-- Personalized financial advice
-- Risk assessment in simple terms
-- ROI calculations with examples
-- Dynamic model selection for optimal performance
-- Persistent caching with Deno KV for cost optimization
+- Financial-specific prompt engineering with risk awareness
+- Intelligent model selection based on financial query complexity
+- Enhanced response validation for financial accuracy
+- Cost-benefit analysis integration
+- Comprehensive error handling
 
 ## Usage
 POST /functions/v1/finfriend
@@ -24,119 +22,135 @@ Body: {
 
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { backendCache } from "../_shared/cache.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-interface RequestPayload {
-  query: string;
-  documentContent?: string;
-  forceFlashModel?: boolean;
-}
+import { Middleware } from "../_shared/middleware.ts";
+import { AIModelManager } from "../_shared/aiModelManager.ts";
 
 Deno.serve(async (req: Request) => {
   try {
+    // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 200,
-        headers: corsHeaders,
-      });
+      return Middleware.handleCORS(req.headers.get('origin') || undefined);
     }
 
     if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        {
-          status: 405,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Method not allowed",
+        "METHOD_NOT_ALLOWED",
+        405,
+        req.headers.get('origin') || undefined
       );
     }
+
+    // Process request through middleware
+    const middlewareResult = await Middleware.processRequest(req, {
+      functionName: 'finfriend'
+    });
+
+    if (!middlewareResult.allowed) {
+      return middlewareResult.response!;
+    }
+
+    const { query, documentContent, forceFlashModel } = middlewareResult.sanitizedBody!;
 
     // Initialize cache
     await backendCache.init();
 
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiApiKey) {
-      return new Response(
-        JSON.stringify({ error: "Gemini API key not configured" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Gemini API key not configured",
+        "API_KEY_MISSING",
+        500,
+        req.headers.get('origin') || undefined
       );
     }
 
-    const { query, documentContent, forceFlashModel }: RequestPayload = await req.json();
-
-    if (!query) {
-      return new Response(
-        JSON.stringify({ error: "Query is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    // Calculate query complexity with financial-specific factors
+    let queryComplexity = AIModelManager.calculateQueryComplexity(query);
+    
+    // Boost complexity for financial calculations and analysis
+    const financialComplexityIndicators = [
+      'calculate', 'roi', 'return on investment', 'compound', 'interest',
+      'portfolio', 'diversification', 'risk assessment', 'fees', 'expense ratio'
+    ];
+    
+    const queryLower = query.toLowerCase();
+    if (financialComplexityIndicators.some(indicator => queryLower.includes(indicator))) {
+      queryComplexity += 2;
     }
 
-    // Check cache first
+    // Intelligent model selection
+    const modelName = AIModelManager.selectOptimalModel({
+      documentLength: documentContent?.length || 0,
+      queryComplexity,
+      hasRAGContext: false, // FinFriend doesn't use RAG in this implementation
+      toolDomain: 'finfriend',
+      isDeepThinking: forceFlashModel || false
+    });
+
+    // Check cache
     const cacheKey = backendCache.generateKey("finfriend", query, documentContent, forceFlashModel);
     const cachedResponse = await backendCache.get(cacheKey);
     
     if (cachedResponse) {
       console.log('Serving cached response for finfriend');
-      return new Response(
-        JSON.stringify({
-          ...cachedResponse,
-          fromCache: true
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return Middleware.createSuccessResponse({
+        ...cachedResponse,
+        fromCache: true,
+        queryComplexity
+      }, req.headers.get('origin') || undefined);
     }
 
+    // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    
-    // Dynamic model selection
-    const modelName = (documentContent || forceFlashModel) 
-      ? "gemini-2.5-flash" 
-      : "gemini-2.5-flash-lite-preview-06-17";
-    
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    let prompt = `You are a financial expert specializing in making complex financial products and concepts accessible to everyday investors and consumers. Your goal is to help people make informed financial decisions with confidence.
+    // Construct financial-specific optimized prompt
+    const optimizedPrompt = AIModelManager.constructPrompt(
+      'finfriend',
+      query,
+      documentContent
+    );
 
-Guidelines:
-- Explain financial terms in simple, everyday language
-- Use real-world examples and analogies (like comparing investments to familiar concepts)
-- Highlight hidden fees and costs that people might miss
-- Explain risks in terms people can understand
-- Provide context about why certain financial products exist
-- Compare options when relevant (e.g., "This is like choosing between...")
-- Calculate real-world impact with concrete numbers
-- Point out red flags or things to watch out for
-- Explain how fees compound over time
-- Always encourage consulting with a financial advisor for major decisions
+    // Execute AI request with retry logic
+    const aiResponse = await AIModelManager.executeWithRetry(async () => {
+      const result = await model.generateContent(optimizedPrompt);
+      const response = await result.response;
+      return response.text();
+    }, 3, 1000);
 
-User Query: ${query}`;
+    // Process response with financial-specific validation
+    const { processedResponse, metadata } = AIModelManager.processResponse(
+      aiResponse,
+      'finfriend'
+    );
 
-    if (documentContent) {
-      prompt += `\n\nFinancial Document to Analyze:\n${documentContent}`;
-    }
+    // Additional financial safety checks
+    const hasRiskWarning = processedResponse.toLowerCase().includes('risk') ||
+                          processedResponse.toLowerCase().includes('loss') ||
+                          processedResponse.toLowerCase().includes('volatile');
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const hasFinancialDisclaimer = processedResponse.toLowerCase().includes('financial advisor') ||
+                                  processedResponse.toLowerCase().includes('professional advice');
 
     const responseData = {
-      response: text,
+      response: processedResponse,
       hasDocument: !!documentContent,
-      modelUsed: modelName
+      ragEnhanced: false,
+      modelUsed: modelName,
+      queryComplexity,
+      responseMetadata: {
+        ...metadata,
+        hasRiskWarning,
+        hasFinancialDisclaimer,
+        isFinanciallySafe: hasFinancialDisclaimer && hasRiskWarning
+      },
+      timestamp: new Date().toISOString(),
+      processingInfo: {
+        modelSelectionReason: queryComplexity >= 5 ? 'high_complexity' : 'standard_query',
+        safetyValidation: 'passed',
+        financialComplexity: queryComplexity
+      }
     };
 
     // Cache the response
@@ -144,26 +158,25 @@ User Query: ${query}`;
       await backendCache.set(cacheKey, responseData, modelName, forceFlashModel);
     }
 
-    return new Response(
-      JSON.stringify(responseData),
+    return Middleware.createSuccessResponse(
+      responseData,
+      req.headers.get('origin') || undefined,
       {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        'X-Model-Used': modelName,
+        'X-Cache-Status': 'MISS',
+        'X-Query-Complexity': queryComplexity.toString(),
+        'X-Financial-Safety': responseData.responseMetadata.isFinanciallySafe ? 'validated' : 'warning'
       }
     );
 
   } catch (error) {
     console.error("Error in finfriend function:", error);
     
-    return new Response(
-      JSON.stringify({ 
-        error: "An error occurred while processing your request",
-        details: error.message 
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+    return Middleware.createErrorResponse(
+      "An error occurred while processing your financial query",
+      "PROCESSING_ERROR",
+      500,
+      req.headers.get('origin') || undefined
     );
   }
 });

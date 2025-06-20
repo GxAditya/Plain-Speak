@@ -1,17 +1,15 @@
 /*
-# AdAnalyst Edge Function
+# AdAnalyst Edge Function with Enhanced AI Integration
 
-This function processes marketing and advertising data using Google's Gemini models.
-It provides plain-English explanations of marketing metrics and campaign performance.
+This function processes marketing and advertising data using Google's Gemini models
+with marketing-specific prompt engineering and intelligent model selection.
 
 ## Features
-- Marketing metric explanations
-- Campaign performance analysis
-- A/B test recommendations
-- ROI calculations and projections
-- Audience analysis insights
-- Dynamic model selection for optimal performance
-- Persistent caching with Deno KV for cost optimization
+- Marketing-specific prompt engineering with ROI focus
+- Campaign analysis and optimization expertise
+- Intelligent model selection for marketing queries
+- Business-focused response validation
+- Performance metric interpretation
 
 ## Usage
 POST /functions/v1/adanalyst
@@ -24,119 +22,136 @@ Body: {
 
 import { GoogleGenerativeAI } from "npm:@google/generative-ai@0.21.0";
 import { backendCache } from "../_shared/cache.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-interface RequestPayload {
-  query: string;
-  documentContent?: string;
-  forceFlashModel?: boolean;
-}
+import { Middleware } from "../_shared/middleware.ts";
+import { AIModelManager } from "../_shared/aiModelManager.ts";
 
 Deno.serve(async (req: Request) => {
   try {
+    // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 200,
-        headers: corsHeaders,
-      });
+      return Middleware.handleCORS(req.headers.get('origin') || undefined);
     }
 
     if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: "Method not allowed" }),
-        {
-          status: 405,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Method not allowed",
+        "METHOD_NOT_ALLOWED",
+        405,
+        req.headers.get('origin') || undefined
       );
     }
+
+    // Process request through middleware
+    const middlewareResult = await Middleware.processRequest(req, {
+      functionName: 'adanalyst'
+    });
+
+    if (!middlewareResult.allowed) {
+      return middlewareResult.response!;
+    }
+
+    const { query, documentContent, forceFlashModel } = middlewareResult.sanitizedBody!;
 
     // Initialize cache
     await backendCache.init();
 
     const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
     if (!geminiApiKey) {
-      return new Response(
-        JSON.stringify({ error: "Gemini API key not configured" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+      return Middleware.createErrorResponse(
+        "Gemini API key not configured",
+        "API_KEY_MISSING",
+        500,
+        req.headers.get('origin') || undefined
       );
     }
 
-    const { query, documentContent, forceFlashModel }: RequestPayload = await req.json();
-
-    if (!query) {
-      return new Response(
-        JSON.stringify({ error: "Query is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    // Calculate query complexity with marketing-specific factors
+    let queryComplexity = AIModelManager.calculateQueryComplexity(query);
+    
+    // Boost complexity for marketing analysis terms
+    const marketingComplexityIndicators = [
+      'campaign', 'roi', 'conversion', 'ctr', 'cpc', 'cpm',
+      'audience', 'targeting', 'optimization', 'a/b test', 'funnel'
+    ];
+    
+    const queryLower = query.toLowerCase();
+    if (marketingComplexityIndicators.some(indicator => queryLower.includes(indicator))) {
+      queryComplexity += 1;
     }
 
-    // Check cache first
+    // Intelligent model selection
+    const modelName = AIModelManager.selectOptimalModel({
+      documentLength: documentContent?.length || 0,
+      queryComplexity,
+      hasRAGContext: false,
+      toolDomain: 'adanalyst',
+      isDeepThinking: forceFlashModel || false
+    });
+
+    // Check cache
     const cacheKey = backendCache.generateKey("adanalyst", query, documentContent, forceFlashModel);
     const cachedResponse = await backendCache.get(cacheKey);
     
     if (cachedResponse) {
       console.log('Serving cached response for adanalyst');
-      return new Response(
-        JSON.stringify({
-          ...cachedResponse,
-          fromCache: true
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return Middleware.createSuccessResponse({
+        ...cachedResponse,
+        fromCache: true,
+        queryComplexity
+      }, req.headers.get('origin') || undefined);
     }
 
+    // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    
-    // Dynamic model selection
-    const modelName = (documentContent || forceFlashModel) 
-      ? "gemini-2.5-flash" 
-      : "gemini-2.5-flash-lite-preview-06-17";
-    
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    let prompt = `You are a marketing and advertising expert specializing in translating complex marketing data and metrics into actionable business insights. Your goal is to help business owners understand their marketing performance and make data-driven decisions.
+    // Construct marketing-specific optimized prompt
+    const optimizedPrompt = AIModelManager.constructPrompt(
+      'adanalyst',
+      query,
+      documentContent
+    );
 
-Guidelines:
-- Explain marketing metrics in business terms, not just technical definitions
-- Translate data into actionable recommendations
-- Use real-world examples and analogies to explain concepts
-- Provide context about what "good" performance looks like in different industries
-- Explain the relationship between different metrics (how CTR affects CPC, etc.)
-- Offer specific, practical suggestions for improvement
-- Calculate real ROI and profit projections when possible
-- Explain audience insights in terms of customer behavior
-- Highlight trends and patterns that matter for business growth
-- Provide budget optimization recommendations with reasoning
+    // Execute AI request with retry logic
+    const aiResponse = await AIModelManager.executeWithRetry(async () => {
+      const result = await model.generateContent(optimizedPrompt);
+      const response = await result.response;
+      return response.text();
+    }, 3, 1000);
 
-User Query: ${query}`;
+    // Process response with marketing-specific validation
+    const { processedResponse, metadata } = AIModelManager.processResponse(
+      aiResponse,
+      'adanalyst'
+    );
 
-    if (documentContent) {
-      prompt += `\n\nMarketing Data/Report to Analyze:\n${documentContent}`;
-    }
+    // Additional marketing quality checks
+    const hasROIAnalysis = processedResponse.toLowerCase().includes('roi') ||
+                          processedResponse.toLowerCase().includes('return') ||
+                          processedResponse.toLowerCase().includes('profit');
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const hasActionableInsights = processedResponse.toLowerCase().includes('recommend') ||
+                                 processedResponse.toLowerCase().includes('optimize') ||
+                                 processedResponse.toLowerCase().includes('improve');
 
     const responseData = {
-      response: text,
+      response: processedResponse,
       hasDocument: !!documentContent,
-      modelUsed: modelName
+      ragEnhanced: false,
+      modelUsed: modelName,
+      queryComplexity,
+      responseMetadata: {
+        ...metadata,
+        hasROIAnalysis,
+        hasActionableInsights,
+        isMarketingOptimized: hasROIAnalysis && hasActionableInsights
+      },
+      timestamp: new Date().toISOString(),
+      processingInfo: {
+        modelSelectionReason: queryComplexity >= 5 ? 'high_complexity' : 'standard_query',
+        marketingComplexity: queryComplexity,
+        businessFocus: 'applied'
+      }
     };
 
     // Cache the response
@@ -144,26 +159,25 @@ User Query: ${query}`;
       await backendCache.set(cacheKey, responseData, modelName, forceFlashModel);
     }
 
-    return new Response(
-      JSON.stringify(responseData),
+    return Middleware.createSuccessResponse(
+      responseData,
+      req.headers.get('origin') || undefined,
       {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        'X-Model-Used': modelName,
+        'X-Cache-Status': 'MISS',
+        'X-Query-Complexity': queryComplexity.toString(),
+        'X-Marketing-Quality': responseData.responseMetadata.isMarketingOptimized ? 'optimized' : 'standard'
       }
     );
 
   } catch (error) {
     console.error("Error in adanalyst function:", error);
     
-    return new Response(
-      JSON.stringify({ 
-        error: "An error occurred while processing your request",
-        details: error.message 
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+    return Middleware.createErrorResponse(
+      "An error occurred while processing your marketing query",
+      "PROCESSING_ERROR",
+      500,
+      req.headers.get('origin') || undefined
     );
   }
 });

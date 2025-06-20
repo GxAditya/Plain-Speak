@@ -1,17 +1,16 @@
 /*
-# Legalese Decoder Edge Function with RAG Integration
+# Legalese Decoder Edge Function with Enhanced AI Integration
 
 This function processes legal documents and user queries using Google's Gemini models
-enhanced with RAG (Retrieval Augmented Generation) for better context-aware responses.
+with advanced prompt engineering, intelligent model selection, and RAG integration.
 
 ## Features
-- Document analysis and jargon detection
-- Plain-language explanations of legal terms
-- Risk assessment and red flag identification
-- RAG-enhanced responses using relevant document chunks
-- Dynamic model selection for optimal performance
-- Persistent caching with Deno KV for cost optimization
-- Advanced rate limiting and security features
+- Intelligent model selection based on query complexity and context
+- Advanced prompt engineering with domain-specific expertise
+- Enhanced RAG integration with legal document context
+- Robust error handling with retry mechanisms
+- Response quality analysis and optimization
+- Comprehensive caching with intelligent cache keys
 
 ## Usage
 POST /functions/v1/legalese-decoder
@@ -27,6 +26,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.39.0';
 import { backendCache } from "../_shared/cache.ts";
 import { Middleware } from "../_shared/middleware.ts";
 import { RAGRetriever } from "../_shared/ragRetriever.ts";
+import { AIModelManager } from "../_shared/aiModelManager.ts";
 
 Deno.serve(async (req: Request) => {
   try {
@@ -72,6 +72,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Calculate query complexity for intelligent model selection
+    const queryComplexity = AIModelManager.calculateQueryComplexity(query);
+
     // Get user from auth header for RAG functionality
     let userId: string | null = null;
     let ragContext = '';
@@ -92,18 +95,18 @@ Deno.serve(async (req: Request) => {
             // Initialize RAG retriever with Gemini API key
             const ragRetriever = new RAGRetriever(supabaseUrl, supabaseServiceKey, geminiApiKey);
             
-            // Retrieve relevant chunks for the query
+            // Retrieve relevant chunks for the query with higher similarity threshold for legal content
             const retrievalResult = await ragRetriever.retrieveRelevantChunks(
               userId,
               query,
               undefined, // No specific document filter
               5, // Limit to top 5 chunks
-              0.6 // Similarity threshold
+              0.7 // Higher similarity threshold for legal precision
             );
             
             if (retrievalResult.chunks.length > 0) {
               ragContext = ragRetriever.formatChunksForPrompt(retrievalResult.chunks);
-              console.log(`RAG: Retrieved ${retrievalResult.chunks.length} relevant chunks for legal query`);
+              console.log(`RAG: Retrieved ${retrievalResult.chunks.length} relevant legal chunks (avg similarity: ${retrievalResult.avgSimilarity.toFixed(3)})`);
             }
           }
         }
@@ -112,13 +115,33 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Check cache first (include RAG context in cache key if available)
+    // Intelligent model selection
+    const modelName = AIModelManager.selectOptimalModel({
+      documentLength: documentContent?.length || 0,
+      queryComplexity,
+      hasRAGContext: ragContext.length > 0,
+      toolDomain: 'legalese-decoder',
+      isDeepThinking: forceFlashModel || false
+    });
+
+    console.log(`Selected model: ${modelName} (complexity: ${queryComplexity}, hasRAG: ${ragContext.length > 0})`);
+
+    // Generate intelligent cache key
+    const cacheKeyComponents = [
+      'legalese-decoder',
+      `q:${AIModelManager.calculateQueryComplexity(query)}`,
+      ragContext ? `rag:${ragContext.substring(0, 50)}` : '',
+      documentContent ? `doc:${documentContent.substring(0, 50)}` : '',
+      forceFlashModel ? 'deep' : 'standard'
+    ].filter(Boolean);
+
     const cacheKey = backendCache.generateKey(
-      "legalese-decoder", 
-      query + (ragContext ? `|rag:${ragContext.substring(0, 100)}` : ''), 
-      documentContent, 
+      cacheKeyComponents[0],
+      cacheKeyComponents.slice(1).join('|'),
+      documentContent,
       forceFlashModel
     );
+
     const cachedResponse = await backendCache.get(cacheKey);
     
     if (cachedResponse) {
@@ -127,59 +150,50 @@ Deno.serve(async (req: Request) => {
         ...cachedResponse,
         fromCache: true,
         ragEnhanced: ragContext.length > 0,
-        cacheKey: cacheKey.join(':').substring(0, 20) + "..."
+        modelUsed: cachedResponse.modelUsed || modelName,
+        queryComplexity,
+        cacheKey: cacheKey.join(':').substring(0, 30) + "..."
       }, req.headers.get('origin') || undefined);
     }
 
     // Initialize Gemini AI
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    
-    // Dynamic model selection
-    // Use gemini-2.5-flash for document analysis, RAG-enhanced queries, or when deep thinking is requested
-    // Use gemini-2.5-flash-lite-preview-06-17 for general queries
-    const modelName = (documentContent || forceFlashModel || ragContext.length > 0) 
-      ? "gemini-2.5-flash" 
-      : "gemini-2.5-flash-lite-preview-06-17";
-    
     const model = genAI.getGenerativeModel({ model: modelName });
 
-    // Construct the prompt for legal document analysis
-    let prompt = `You are a legal expert specializing in translating complex legal language into plain English. Your goal is to help ordinary people understand legal documents, contracts, and terminology without needing a law degree.
+    // Construct optimized prompt using AI Model Manager
+    const optimizedPrompt = AIModelManager.constructPrompt(
+      'legalese-decoder',
+      query,
+      documentContent,
+      ragContext
+    );
 
-Guidelines:
-- Explain legal terms in simple, everyday language
-- Use analogies and examples when helpful
-- Highlight potential risks or important considerations
-- Be accurate but accessible
-- If analyzing a contract clause, explain what it means for the person signing it
-- Point out any red flags or unusual terms
-- Provide context about why certain clauses exist
-- When referencing document context, cite the source document name
+    // Execute AI request with retry logic
+    const aiResponse = await AIModelManager.executeWithRetry(async () => {
+      const result = await model.generateContent(optimizedPrompt);
+      const response = await result.response;
+      return response.text();
+    }, 3, 1000);
 
-User Query: ${query}`;
-
-    // Add document content if provided
-    if (documentContent) {
-      prompt += `\n\nDocument Content to Analyze:\n${documentContent}`;
-    }
-
-    // Add RAG context if available
-    if (ragContext) {
-      prompt += ragContext;
-      prompt += `\n\nNote: Use the relevant document context above to provide more accurate and specific answers. Reference the source documents when applicable.`;
-    }
-
-    // Generate response using Gemini
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    // Process and validate response
+    const { processedResponse, metadata } = AIModelManager.processResponse(
+      aiResponse,
+      'legalese-decoder'
+    );
 
     const responseData = {
-      response: text,
+      response: processedResponse,
       hasDocument: !!documentContent,
       ragEnhanced: ragContext.length > 0,
       modelUsed: modelName,
-      timestamp: new Date().toISOString()
+      queryComplexity,
+      responseMetadata: metadata,
+      timestamp: new Date().toISOString(),
+      processingInfo: {
+        ragChunksUsed: ragContext ? ragContext.split('---').length - 1 : 0,
+        modelSelectionReason: queryComplexity >= 5 ? 'high_complexity' : 'standard_query',
+        promptTokensEstimate: Math.ceil(optimizedPrompt.length / 4) // Rough estimate
+      }
     };
 
     // Cache the response if it should be cached
@@ -193,7 +207,9 @@ User Query: ${query}`;
       {
         'X-Model-Used': modelName,
         'X-Cache-Status': 'MISS',
-        'X-RAG-Enhanced': ragContext.length > 0 ? 'true' : 'false'
+        'X-RAG-Enhanced': ragContext.length > 0 ? 'true' : 'false',
+        'X-Query-Complexity': queryComplexity.toString(),
+        'X-Response-Quality': metadata.hasActionableAdvice ? 'high' : 'standard'
       }
     );
 
@@ -201,7 +217,7 @@ User Query: ${query}`;
     console.error("Error in legalese-decoder function:", error);
     
     return Middleware.createErrorResponse(
-      "An error occurred while processing your request",
+      "An error occurred while processing your legal query",
       "PROCESSING_ERROR",
       500,
       req.headers.get('origin') || undefined
