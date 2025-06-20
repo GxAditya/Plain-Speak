@@ -20,7 +20,8 @@ import {
   Zap,
   LogOut,
   User,
-  BarChart3
+  BarChart3,
+  Settings
 } from 'lucide-react';
 import { useCachedAPI } from './hooks/useCachedAPI';
 import { useAuth } from './hooks/useAuth';
@@ -375,7 +376,7 @@ I'm now ready to answer any questions about the content, explain complex terms, 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
               <button
-                onClick={() => setCurrentTool(null)}
+                onClick={handleBackToLanding}
                 className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -394,9 +395,33 @@ I'm now ready to answer any questions about the content, explain complex terms, 
 
               {/* User Menu */}
               <div className="flex items-center space-x-4">
+                <button
+                  onClick={handleShowDashboard}
+                  className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
+                >
+                  <BarChart3 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Dashboard</span>
+                </button>
+                
+                {/* Admin Panel Button - Only show for admins */}
+                {user?.isAdmin && (
+                  <button
+                    onClick={() => {/* TODO: Navigate to admin panel */}}
+                    className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span className="hidden sm:inline">Admin</span>
+                  </button>
+                )}
+                
                 <div className="flex items-center space-x-2 text-sm text-bolt-gray-600">
                   <User className="h-4 w-4" />
                   <span>{user?.email}</span>
+                  {user?.isAdmin && (
+                    <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full font-medium">
+                      Admin
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={handleSignOut}
@@ -645,9 +670,25 @@ I'm now ready to answer any questions about the content, explain complex terms, 
                     <span className="hidden sm:inline">Dashboard</span>
                   </button>
                   
+                  {/* Admin Panel Button - Only show for admins */}
+                  {user.isAdmin && (
+                    <button
+                      onClick={() => {/* TODO: Navigate to admin panel */}}
+                      className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
+                    >
+                      <Settings className="h-4 w-4" />
+                      <span className="hidden sm:inline">Admin</span>
+                    </button>
+                  )}
+                  
                   <div className="flex items-center space-x-2 text-sm text-bolt-gray-600">
                     <User className="h-4 w-4" />
                     <span className="hidden sm:inline">{user.email}</span>
+                    {user.isAdmin && (
+                      <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full font-medium">
+                        Admin
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={handleSignOut}
