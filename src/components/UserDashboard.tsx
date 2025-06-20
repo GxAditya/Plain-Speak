@@ -1,7 +1,7 @@
 /**
  * Enhanced User Dashboard Component
  * Main dashboard view showing user statistics and navigation to history
- * Now includes free tier management
+ * Now includes document management for non-free tier users
  */
 
 import React, { useState, useEffect } from 'react';
@@ -21,12 +21,14 @@ import {
   Brain,
   Zap,
   Key,
-  Upload
+  Upload,
+  FolderOpen
 } from 'lucide-react';
 import { useHistory } from '../hooks/useHistory';
 import { useFreeTier } from '../hooks/useFreeTier';
 import { HistoryList } from './HistoryList';
 import { FreeTierSettings } from './FreeTierSettings';
+import { DocumentManagement } from './DocumentManagement';
 
 interface UserDashboardProps {
   user: any;
@@ -40,6 +42,7 @@ export function UserDashboard({ user, onBack, onError }: UserDashboardProps) {
   const [stats, setStats] = useState<any>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDocumentManagement, setShowDocumentManagement] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
@@ -134,6 +137,19 @@ export function UserDashboard({ user, onBack, onError }: UserDashboardProps) {
           <FreeTierSettings />
         </div>
       </div>
+    );
+  }
+
+  if (showDocumentManagement) {
+    return (
+      <DocumentManagement 
+        onBack={() => setShowDocumentManagement(false)}
+        onError={onError}
+        onSuccess={(message) => {
+          // You can add a success notification here if needed
+          console.log('Document management success:', message);
+        }}
+      />
     );
   }
 
@@ -402,6 +418,20 @@ export function UserDashboard({ user, onBack, onError }: UserDashboardProps) {
                       </button>
                     )}
                     
+                    {/* Document Management - Only for non-free tier users */}
+                    {freeTierInfo?.tier !== 'free' && (
+                      <button
+                        onClick={() => setShowDocumentManagement(true)}
+                        className="w-full flex items-center justify-between p-3 text-left bg-bolt-gray-50 hover:bg-bolt-gray-100 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <FolderOpen className="h-4 w-4 text-bolt-gray-600" />
+                          <span className="text-sm font-medium text-bolt-gray-900">Manage Documents</span>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-bolt-gray-400" />
+                      </button>
+                    )}
+                    
                     {freeTierInfo?.tier === 'free' && (
                       <button
                         onClick={() => setShowSettings(true)}
@@ -442,6 +472,7 @@ export function UserDashboard({ user, onBack, onError }: UserDashboardProps) {
                       <p>• 3 document uploads per day</p>
                       <p>• Requires your own Gemini API key</p>
                       <p>• All AI tools available</p>
+                      <p>• Document management not available</p>
                     </div>
                   </div>
                 )}
