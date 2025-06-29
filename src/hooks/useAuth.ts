@@ -1,6 +1,7 @@
 /**
  * Enhanced Authentication Hook
  * Manages user authentication state with profile data and role information
+ * Fixed: Separated auth loading from profile loading to prevent infinite loading
  */
 
 import { useState, useEffect } from 'react';
@@ -27,6 +28,7 @@ interface UseAuthReturn {
   user: EnhancedUser | null;
   session: Session | null;
   loading: boolean;
+  profileLoading: boolean; // Added separate profile loading state
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -36,6 +38,7 @@ export function useAuth(): UseAuthReturn {
   const [user, setUser] = useState<EnhancedUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -43,6 +46,7 @@ export function useAuth(): UseAuthReturn {
     // Get initial session and user profile
     const getInitialSession = async () => {
       try {
+        console.log('Getting initial session...');
         const { data: { session: currentSession }, error } = await supabase.auth.getSession();
         
         if (error) {
@@ -58,22 +62,41 @@ export function useAuth(): UseAuthReturn {
           setSession(currentSession);
           
           if (currentSession?.user) {
-            try {
-              const enhancedUser = await fetchUserProfile(currentSession.user);
-              setUser(enhancedUser);
-            } catch (profileError) {
-              console.error('Error fetching profile during initial load:', profileError);
-              // Set basic user info even if profile fetch fails
-              setUser({
-                ...currentSession.user,
-                profile: undefined,
-                isAdmin: false
+            console.log('Found existing session for:', currentSession.user.email);
+            
+            // Set basic user info immediately - this fixes the infinite loading
+            const basicUser: EnhancedUser = {
+              ...currentSession.user,
+              profile: undefined,
+              isAdmin: false
+            };
+            setUser(basicUser);
+            
+            // Load profile data in background without blocking auth
+            setProfileLoading(true);
+            loadUserProfile(currentSession.user)
+              .then(enhancedUser => {
+                if (mounted) {
+                  console.log('Profile loaded successfully');
+                  setUser(enhancedUser);
+                }
+              })
+              .catch(profileError => {
+                console.error('Error fetching profile during initial load:', profileError);
+                // Keep the basic user info even if profile fetch fails
+              })
+              .finally(() => {
+                if (mounted) {
+                  setProfileLoading(false);
+                }
               });
-            }
           } else {
+            console.log('No user in session');
             setUser(null);
           }
           
+          // CRITICAL: Set loading to false immediately after auth check
+          console.log('Setting auth loading to false');
           setLoading(false);
         }
       } catch (error) {
@@ -98,24 +121,42 @@ export function useAuth(): UseAuthReturn {
         setSession(newSession);
 
         if (newSession?.user) {
-          // Fetch user profile when user signs in
-          try {
-            const enhancedUser = await fetchUserProfile(newSession.user);
-            setUser(enhancedUser);
-          } catch (error) {
-            console.error('Error fetching user profile after auth change:', error);
-            // Still set the basic user info even if profile fetch fails
-            setUser({
-              ...newSession.user,
-              profile: undefined,
-              isAdmin: false
+          console.log('User authenticated:', newSession.user.email);
+          
+          // Set basic user info immediately
+          const basicUser: EnhancedUser = {
+            ...newSession.user,
+            profile: undefined,
+            isAdmin: false
+          };
+          setUser(basicUser);
+          
+          // Load profile in background
+          setProfileLoading(true);
+          loadUserProfile(newSession.user)
+            .then(enhancedUser => {
+              if (mounted) {
+                console.log('Profile loaded after auth change');
+                setUser(enhancedUser);
+              }
+            })
+            .catch(error => {
+              console.error('Error fetching user profile after auth change:', error);
+              // Keep the basic user info even if profile fetch fails
+            })
+            .finally(() => {
+              if (mounted) {
+                setProfileLoading(false);
+              }
             });
-          }
         } else {
+          console.log('User signed out');
           setUser(null);
+          setProfileLoading(false);
         }
 
         // Always ensure loading is set to false after any auth state change
+        console.log('Setting auth loading to false after state change');
         setLoading(false);
 
         // Handle specific auth events
@@ -125,14 +166,23 @@ export function useAuth(): UseAuthReturn {
           console.log('User signed out');
         } else if (event === 'TOKEN_REFRESHED') {
           console.log('Token refreshed');
-          // Refresh profile data on token refresh
-          if (newSession?.user) {
-            try {
-              const enhancedUser = await fetchUserProfile(newSession.user);
-              setUser(enhancedUser);
-            } catch (error) {
-              console.error('Error refreshing profile after token refresh:', error);
-            }
+          // Refresh profile data on token refresh if user exists
+          if (newSession?.user && user) {
+            setProfileLoading(true);
+            loadUserProfile(newSession.user)
+              .then(enhancedUser => {
+                if (mounted) {
+                  setUser(enhancedUser);
+                }
+              })
+              .catch(error => {
+                console.error('Error refreshing profile after token refresh:', error);
+              })
+              .finally(() => {
+                if (mounted) {
+                  setProfileLoading(false);
+                }
+              });
           }
         }
       }
@@ -145,10 +195,38 @@ export function useAuth(): UseAuthReturn {
   }, []);
 
   /**
+   * Load user profile data with timeout and error handling
+   * Separated from fetchUserProfile to make it more robust
+   */
+  const loadUserProfile = async (authUser: User): Promise<EnhancedUser> => {
+    try {
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Profile fetch timeout after 10 seconds')), 10000)
+      );
+      
+      const profilePromise = fetchUserProfile(authUser);
+      
+      const enhancedUser = await Promise.race([profilePromise, timeoutPromise]);
+      return enhancedUser;
+    } catch (error) {
+      console.error('Error in loadUserProfile:', error);
+      // Always return basic user info if profile loading fails
+      return {
+        ...authUser,
+        profile: undefined,
+        isAdmin: false
+      };
+    }
+  };
+
+  /**
    * Fetch user profile data from the profiles table
    */
   const fetchUserProfile = async (authUser: User): Promise<EnhancedUser> => {
     try {
+      console.log('Fetching profile for user:', authUser.id);
+      
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
@@ -170,7 +248,8 @@ export function useAuth(): UseAuthReturn {
                 role: 'user',
                 user_tier: 'free',
                 has_gemini_key: false,
-                daily_uploads_count: 0
+                daily_uploads_count: 0,
+                preferences: {}
               })
               .select()
               .single();
@@ -184,6 +263,7 @@ export function useAuth(): UseAuthReturn {
               };
             }
 
+            console.log('Profile created successfully');
             return {
               ...authUser,
               profile: newProfile,
@@ -213,7 +293,7 @@ export function useAuth(): UseAuthReturn {
         isAdmin: profile?.role === 'admin'
       };
 
-      console.log('User profile loaded:', {
+      console.log('User profile loaded successfully:', {
         email: profile?.email,
         role: profile?.role,
         isAdmin: enhancedUser.isAdmin
@@ -239,7 +319,7 @@ export function useAuth(): UseAuthReturn {
     }
 
     try {
-      setLoading(true);
+      setProfileLoading(true);
 
       // Prevent users from changing their own role
       const safeUpdates = { ...updates };
@@ -270,7 +350,7 @@ export function useAuth(): UseAuthReturn {
       console.error('Error updating profile:', error);
       throw error;
     } finally {
-      setLoading(false);
+      setProfileLoading(false);
     }
   };
 
@@ -281,10 +361,13 @@ export function useAuth(): UseAuthReturn {
     if (!user) return;
 
     try {
-      const enhancedUser = await fetchUserProfile(user);
+      setProfileLoading(true);
+      const enhancedUser = await loadUserProfile(user);
       setUser(enhancedUser);
     } catch (error) {
       console.error('Error refreshing profile:', error);
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -294,6 +377,8 @@ export function useAuth(): UseAuthReturn {
   const signOut = async () => {
     try {
       setLoading(true);
+      console.log('Signing out user...');
+      
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Error signing out:', error);
@@ -303,6 +388,9 @@ export function useAuth(): UseAuthReturn {
       // Clear user state immediately
       setUser(null);
       setSession(null);
+      setProfileLoading(false);
+      
+      console.log('User signed out successfully');
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;
@@ -311,10 +399,23 @@ export function useAuth(): UseAuthReturn {
     }
   };
 
+  // Debug logging (remove in production)
+  useEffect(() => {
+    console.log('Auth State Debug:', {
+      loading,
+      profileLoading,
+      hasUser: !!user,
+      hasSession: !!session,
+      userEmail: user?.email,
+      hasProfile: !!user?.profile
+    });
+  }, [loading, profileLoading, user, session]);
+
   return {
     user,
     session,
     loading,
+    profileLoading,
     signOut,
     updateProfile,
     refreshProfile
