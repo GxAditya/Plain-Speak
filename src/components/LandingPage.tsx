@@ -420,39 +420,6 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-bolt-blue-600 to-bolt-blue-700">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-            Start Understanding Today
-          </h2>
-          <p className="text-xl text-bolt-blue-100 mb-12">
-            Join thousands of users who are making informed decisions with confidence.
-          </p>
-
-          <form onSubmit={handleEmailSubmit} className="flex flex-col sm:flex-row gap-4 max-w-md mx-auto mb-8">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
-              className="flex-1 px-6 py-4 rounded-xl border-0 focus:ring-2 focus:ring-white focus:outline-none text-bolt-gray-900"
-            />
-            <button
-              type="submit"
-              className="bg-white text-bolt-blue-600 px-8 py-4 rounded-xl font-semibold hover:bg-bolt-gray-50 transition-colors flex items-center justify-center space-x-2"
-            >
-              <span>Get Started</span>
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          </form>
-
-          <p className="text-bolt-blue-200 text-sm">
-            Start translating complex jargon today • Cancel anytime
-          </p>
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="bg-bolt-gray-900 text-white py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -491,9 +458,14 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
           </div>
 
           <div className="border-t border-bolt-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center">
-            <p className="text-bolt-gray-400 text-sm mb-4 md:mb-0">
-              © 2025 PlainSpeak. All rights reserved.
-            </p>
+            <div className="text-center md:text-left mb-4 md:mb-0">
+              <p className="text-bolt-gray-400 text-sm mb-2">
+                © 2025 PlainSpeak. All rights reserved.
+              </p>
+              <p className="text-bolt-gray-500 text-xs">
+                Built with <a href="https://bolt.new" target="_blank" rel="noopener noreferrer" className="text-bolt-blue-400 hover:text-bolt-blue-300 transition-colors">Bolt.new</a>
+              </p>
+            </div>
             <div className="flex space-x-6 text-sm text-bolt-gray-400">
               <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
               <a href="#" className="hover:text-white transition-colors">Cookie Policy</a>
