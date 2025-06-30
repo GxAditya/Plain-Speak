@@ -469,7 +469,33 @@ I'm now ready to answer any questions about the content, explain complex terms, 
 
         {/* Show landing page */}
         {showLanding && !showAuth && !showPasswordReset && (
-          <LandingPage onGetStarted={handleGetStarted} />
+          <>
+            <LandingPage onGetStarted={handleGetStarted} />
+            
+            {/* Custom Bolt.new Badge - Only on landing page */}
+            <style>
+              .bolt-badge {
+                transition: all 0.3s ease;
+              }
+              @keyframes badgeHover {
+                0% { transform: scale(1) rotate(0deg); }
+                50% { transform: scale(1.1) rotate(22deg); }
+                100% { transform: scale(1) rotate(0deg); }
+              }
+              .bolt-badge:hover {
+                animation: badgeHover 0.6s ease-in-out;
+              }
+            </style>
+            <div className="fixed bottom-4 left-4 z-50">
+              <a href="https://bolt.new/?rid=os72mi" target="_blank" rel="noopener noreferrer" 
+                 className="block transition-all duration-300 hover:shadow-2xl">
+                <img src="https://storage.bolt.army/logotext_poweredby_360w.png" 
+                     alt="Powered by Bolt.new badge" 
+                     className="h-8 md:h-10 w-auto shadow-lg opacity-90 hover:opacity-100 bolt-badge"
+                      />
+              </a>
+            </div>
+          </>
         )}
 
         {/* Show admin panel */}
@@ -947,30 +973,6 @@ I'm now ready to answer any questions about the content, explain complex terms, 
             </div>
           </div>
         )}
-
-        {/* Custom Bolt.new Badge */}
-        <style>
-          .bolt-badge {
-            transition: all 0.3s ease;
-          }
-          @keyframes badgeHover {
-            0% { transform: scale(1) rotate(0deg); }
-            50% { transform: scale(1.1) rotate(22deg); }
-            100% { transform: scale(1) rotate(0deg); }
-          }
-          .bolt-badge:hover {
-            animation: badgeHover 0.6s ease-in-out;
-          }
-        </style>
-        <div className="fixed bottom-4 left-4 z-50">
-          <a href="https://bolt.new/?rid=os72mi" target="_blank" rel="noopener noreferrer" 
-             className="block transition-all duration-300 hover:shadow-2xl">
-            <img src="https://storage.bolt.army/white_circle_360x360.png" 
-                 alt="Built with Bolt.new badge" 
-                 className="w-20 h-20 md:w-28 md:h-28 rounded-full shadow-lg bolt-badge"
-                  />
-          </a>
-        </div>
       </div>
     </ErrorBoundary>
   );
