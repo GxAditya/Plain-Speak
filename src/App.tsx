@@ -473,19 +473,6 @@ I'm now ready to answer any questions about the content, explain complex terms, 
             <LandingPage onGetStarted={handleGetStarted} />
             
             {/* Custom Bolt.new Badge - Only on landing page */}
-            <style>
-              .bolt-badge {
-                transition: all 0.3s ease;
-              }
-              @keyframes badgeHover {
-                0% { transform: scale(1) rotate(0deg); }
-                50% { transform: scale(1.1) rotate(22deg); }
-                100% { transform: scale(1) rotate(0deg); }
-              }
-              .bolt-badge:hover {
-                animation: badgeHover 0.6s ease-in-out;
-              }
-            </style>
             <div className="fixed bottom-4 left-4 z-50">
               <a href="https://bolt.new/?rid=os72mi" target="_blank" rel="noopener noreferrer" 
                  className="block transition-all duration-300 hover:shadow-2xl">
