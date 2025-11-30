@@ -1,6 +1,4 @@
-import React from 'react';
-import { 
-  Check, 
+import {  
   FileText,
   Github
 } from 'lucide-react';
@@ -41,7 +39,7 @@ const plans = [
   },
   {
     name: "Enterprise",
-    price: { monthly: 20, yearly: 192 },
+    price: { monthly: 50, yearly: 490 },
     level: "all",
   },
 ];
