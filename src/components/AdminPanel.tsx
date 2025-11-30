@@ -1,38 +1,25 @@
 /**
  * Admin Panel Component
- * Comprehensive admin interface for managing users, monitoring system health, and analytics
+ * Professional admin interface following PlainSpeak design system
  */
 
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   BarChart3, 
-  Settings, 
   Shield, 
-  Database, 
   Activity,
   Search,
-  Filter,
   Download,
   RefreshCw,
   AlertTriangle,
   CheckCircle,
-  Clock,
   TrendingUp,
-  UserCheck,
-  Key,
   Upload,
-  Zap,
-  Brain,
-  Eye,
-  Edit,
-  Trash2,
-  Plus,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink
+  ChevronLeft,
+  X,
+  Loader2
 } from 'lucide-react';
-import { LoadingSpinner } from './LoadingSpinner';
 
 interface AdminPanelProps {
   user: any;

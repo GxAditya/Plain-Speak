@@ -1,58 +1,46 @@
 /**
  * Loading Spinner Component
- * Reusable loading indicator with different sizes and styles
+ * Minimal loading indicator following PlainSpeak design system
  */
 
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface LoadingSpinnerProps {
-  size?: 'sm' | 'md' | 'lg' | 'xl';
-  color?: 'blue' | 'gray' | 'white';
+  size?: 'sm' | 'md' | 'lg';
+  color?: 'default' | 'white';
   text?: string;
   className?: string;
 }
 
 export function LoadingSpinner({ 
   size = 'md', 
-  color = 'blue', 
+  color = 'default', 
   text, 
   className = '' 
 }: LoadingSpinnerProps) {
-  const getSizeClasses = () => {
-    switch (size) {
-      case 'sm': return 'h-4 w-4';
-      case 'md': return 'h-6 w-6';
-      case 'lg': return 'h-8 w-8';
-      case 'xl': return 'h-12 w-12';
-      default: return 'h-6 w-6';
-    }
+  const sizeClasses = {
+    sm: 'h-4 w-4',
+    md: 'h-5 w-5',
+    lg: 'h-6 w-6'
   };
 
-  const getColorClasses = () => {
-    switch (color) {
-      case 'blue': return 'text-bolt-blue-600';
-      case 'gray': return 'text-bolt-gray-600';
-      case 'white': return 'text-white';
-      default: return 'text-bolt-blue-600';
-    }
+  const colorClasses = {
+    default: 'text-bolt-gray-400',
+    white: 'text-white'
   };
 
-  const getTextSizeClasses = () => {
-    switch (size) {
-      case 'sm': return 'text-sm';
-      case 'md': return 'text-base';
-      case 'lg': return 'text-lg';
-      case 'xl': return 'text-xl';
-      default: return 'text-base';
-    }
+  const textSizeClasses = {
+    sm: 'text-xs',
+    md: 'text-sm',
+    lg: 'text-sm'
   };
 
   if (text) {
     return (
-      <div className={`flex items-center space-x-3 ${className}`}>
-        <Loader2 className={`${getSizeClasses()} ${getColorClasses()} animate-spin`} />
-        <span className={`${getTextSizeClasses()} ${getColorClasses()} font-medium`}>
+      <div className={`flex items-center gap-2 ${className}`}>
+        <Loader2 className={`${sizeClasses[size]} ${colorClasses[color]} animate-spin`} />
+        <span className={`${textSizeClasses[size]} ${color === 'white' ? 'text-white' : 'text-bolt-gray-500'}`}>
           {text}
         </span>
       </div>
@@ -60,7 +48,7 @@ export function LoadingSpinner({
   }
 
   return (
-    <Loader2 className={`${getSizeClasses()} ${getColorClasses()} animate-spin ${className}`} />
+    <Loader2 className={`${sizeClasses[size]} ${colorClasses[color]} animate-spin ${className}`} />
   );
 }
 
@@ -77,14 +65,12 @@ export function FullPageLoading({
   submessage 
 }: FullPageLoadingProps) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-bolt-gray-50 via-white to-bolt-blue-50 flex items-center justify-center">
+    <div className="min-h-screen bg-bolt-gray-50 flex items-center justify-center">
       <div className="text-center">
-        <div className="p-4 bg-gradient-to-r from-bolt-blue-600 to-bolt-blue-700 rounded-xl mb-6 inline-block">
-          <LoadingSpinner size="lg" color="white" />
-        </div>
-        <h2 className="text-xl font-semibold text-bolt-gray-900 mb-2">{message}</h2>
+        <LoadingSpinner size="lg" className="mx-auto mb-3" />
+        <p className="text-sm font-medium text-bolt-gray-900 mb-1">{message}</p>
         {submessage && (
-          <p className="text-bolt-gray-600">{submessage}</p>
+          <p className="text-xs text-bolt-gray-500">{submessage}</p>
         )}
       </div>
     </div>
@@ -106,7 +92,7 @@ export function InlineLoading({
   className = '' 
 }: InlineLoadingProps) {
   return (
-    <div className={`flex items-center justify-center py-8 ${className}`}>
+    <div className={`flex items-center justify-center py-6 ${className}`}>
       <LoadingSpinner size={size} text={message} />
     </div>
   );

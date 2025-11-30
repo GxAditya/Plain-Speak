@@ -123,135 +123,47 @@ export function HistoryList({ user, onBack, onBackToDashboard }: HistoryListProp
   const totalPages = Math.ceil(total / itemsPerPage);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-bolt-gray-50 to-white">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={onBack}
-                className="flex items-center space-x-2 text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors"
-              >
-                <ChevronLeft className="h-5 w-5" />
-                <span className="font-medium">Back to Dashboard</span>
-              </button>
-              
-              <div className="h-6 w-px bg-bolt-gray-300"></div>
-              
-              <button
-                onClick={onBackToDashboard}
-                className="text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors text-sm"
-              >
-                Tools
-              </button>
-            </div>
-            
-            <div>
-              <h1 className="text-xl font-bold text-bolt-gray-900">Interaction History</h1>
-              <p className="text-sm text-bolt-gray-500">{total} total interactions</p>
-            </div>
-
-            <div className="w-32"></div> {/* Spacer for balance */}
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search and Filters */}
-        <div className="bg-white rounded-xl shadow-sm border border-bolt-gray-100 p-6 mb-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-bolt-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search your interactions..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                  className="w-full pl-10 pr-4 py-2 border border-bolt-gray-300 rounded-lg focus:ring-2 focus:ring-bolt-blue-500 focus:border-transparent outline-none"
-                />
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center space-x-2 px-4 py-2 border border-bolt-gray-300 rounded-lg hover:bg-bolt-gray-50 transition-colors"
-              >
-                <Filter className="h-4 w-4" />
-                <span>Filters</span>
-                <ChevronDown className={`h-4 w-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
-              </button>
-              
-              <button
-                onClick={handleSearch}
-                className="px-4 py-2 bg-bolt-blue-600 text-white rounded-lg hover:bg-bolt-blue-700 transition-colors"
-              >
-                Search
-              </button>
-            </div>
-          </div>
-
-          {showFilters && (
-            <div className="mt-4 pt-4 border-t border-bolt-gray-200">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-bolt-gray-700 mb-2">Tool</label>
-                  <select
-                    value={toolFilter}
-                    onChange={(e) => setToolFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-bolt-gray-300 rounded-lg focus:ring-2 focus:ring-bolt-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">All Tools</option>
-                    <option value="legalese">Legalese Decoder</option>
-                    <option value="medispeak">MediSpeak</option>
-                    <option value="finfriend">FinFriend</option>
-                    <option value="buildbot">BuildBot</option>
-                    <option value="edusimplify">EduSimplify</option>
-                    <option value="homelingo">HomeLingo</option>
-                    <option value="techtalk">TechTalk</option>
-                    <option value="adanalyst">AdAnalyst</option>
-                    <option value="policypal">PolicyPal</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
+    <div className="min-h-screen bg-bolt-gray-50">
+      <div className="max-w-5xl mx-auto p-6">
+        {/* Back Button */}
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 text-sm text-bolt-gray-600 hover:text-bolt-gray-900 transition-colors mb-6"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span>Back to dashboard</span>
+        </button>
         {/* Error Display */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-3">
-            <AlertCircle className="h-5 w-5 text-red-600" />
-            <span className="text-red-800">{error}</span>
+          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <span className="text-sm text-red-800">{error}</span>
           </div>
         )}
 
         {/* History List */}
-        <div className="bg-white rounded-xl shadow-sm border border-bolt-gray-100">
+        <div className="bg-white border border-bolt-gray-200 rounded-lg">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <Loader2 className="h-8 w-8 animate-spin text-bolt-blue-600 mx-auto mb-4" />
-                <p className="text-bolt-gray-600">Loading your history...</p>
+                <Loader2 className="h-6 w-6 animate-spin text-bolt-gray-400 mx-auto mb-3" />
+                <p className="text-sm text-bolt-gray-500">Loading your history...</p>
               </div>
             </div>
           ) : history.length === 0 ? (
             <div className="text-center py-12">
-              <Clock className="h-12 w-12 mx-auto mb-4 text-bolt-gray-300" />
-              <h3 className="text-lg font-medium text-bolt-gray-900 mb-2">No interactions yet</h3>
-              <p className="text-bolt-gray-600">Start using PlainSpeak tools to see your history here!</p>
+              <Clock className="h-10 w-10 mx-auto mb-3 text-bolt-gray-300" />
+              <h3 className="text-sm font-medium text-bolt-gray-900 mb-1">No interactions yet</h3>
+              <p className="text-sm text-bolt-gray-600">Start using PlainSpeak tools to see your history here!</p>
             </div>
           ) : (
             <div className="divide-y divide-bolt-gray-200">
               {history.map((entry) => (
-                <div key={entry.id} className="p-6 hover:bg-bolt-gray-50 transition-colors">
+                <div key={entry.id} className="p-4 hover:bg-bolt-gray-50 transition-colors">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-3 mb-2">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-bolt-blue-100 text-bolt-blue-800">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-bolt-gray-100 text-bolt-gray-900">
                           {entry.tool_name}
                         </span>
                         
@@ -331,27 +243,27 @@ export function HistoryList({ user, onBack, onBackToDashboard }: HistoryListProp
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="mt-6 flex items-center justify-between">
-            <div className="text-sm text-bolt-gray-700">
+            <div className="text-xs text-bolt-gray-600">
               Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} results
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-2 border border-bolt-gray-300 rounded-lg text-sm font-medium text-bolt-gray-700 hover:bg-bolt-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 border border-bolt-gray-300 rounded-lg text-xs font-medium text-bolt-gray-700 hover:bg-bolt-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
               
-              <span className="px-3 py-2 text-sm font-medium text-bolt-gray-700">
+              <span className="px-3 py-1.5 text-xs font-medium text-bolt-gray-700">
                 Page {currentPage} of {totalPages}
               </span>
               
               <button
                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-2 border border-bolt-gray-300 rounded-lg text-sm font-medium text-bolt-gray-700 hover:bg-bolt-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 border border-bolt-gray-300 rounded-lg text-xs font-medium text-bolt-gray-700 hover:bg-bolt-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>
@@ -363,17 +275,15 @@ export function HistoryList({ user, onBack, onBackToDashboard }: HistoryListProp
       {/* Detail Modal */}
       {selectedEntry && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-6 border-b border-bolt-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-bolt-gray-900">Interaction Details</h2>
-                <button
-                  onClick={() => setSelectedEntry(null)}
-                  className="text-bolt-gray-400 hover:text-bolt-gray-600"
-                >
-                  ×
-                </button>
-              </div>
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-bolt-gray-200 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-bolt-gray-900">Interaction Details</h2>
+              <button
+                onClick={() => setSelectedEntry(null)}
+                className="text-bolt-gray-400 hover:text-bolt-gray-600 text-xl leading-none"
+              >
+                ×
+              </button>
             </div>
             
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
@@ -432,21 +342,21 @@ export function HistoryList({ user, onBack, onBackToDashboard }: HistoryListProp
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-bolt-gray-900 mb-4">Delete Interaction</h3>
-            <p className="text-bolt-gray-600 mb-6">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <h3 className="text-sm font-semibold text-bolt-gray-900 mb-3">Delete Interaction</h3>
+            <p className="text-sm text-bolt-gray-600 mb-6">
               Are you sure you want to delete this interaction? This action cannot be undone.
             </p>
-            <div className="flex justify-end space-x-3">
+            <div className="flex justify-end gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 border border-bolt-gray-300 rounded-lg text-bolt-gray-700 hover:bg-bolt-gray-50 transition-colors"
+                className="px-4 py-2 text-sm border border-bolt-gray-300 rounded-lg text-bolt-gray-700 hover:bg-bolt-gray-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 Delete
               </button>

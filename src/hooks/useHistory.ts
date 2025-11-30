@@ -1,6 +1,6 @@
 /**
- * Custom hook for managing user history
- * Handles saving interactions and retrieving history data
+ * Custom hook for managing user history - Supabase removed
+ * Replace with your backend implementation.
  */
 
 import { useState, useCallback } from 'react';
@@ -76,53 +76,7 @@ export function useHistory(): UseHistoryReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const callHistoryAPI = useCallback(async (action: string, data?: any) => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    
-    if (!supabaseUrl) {
-      throw new Error('Supabase configuration is missing');
-    }
-
-    const { supabase } = await import('../utils/supabase');
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      throw new Error('Authentication required');
-    }
-
-    const response = await fetch(`${supabaseUrl}/functions/v1/user-history-manager`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ action, data })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.error || errorMessage;
-      } catch {
-        errorMessage = errorText || errorMessage;
-      }
-      
-      throw new Error(errorMessage);
-    }
-
-    const result = await response.json();
-    
-    if (!result.success) {
-      throw new Error(result.error || 'Unknown error occurred');
-    }
-
-    return result.result;
-  }, []);
-
-  const saveInteraction = useCallback(async (data: {
+  const saveInteraction = useCallback(async (_data: {
     toolId: string;
     queryText: string;
     responseText: string;
@@ -134,18 +88,11 @@ export function useHistory(): UseHistoryReturn {
     metadata?: Record<string, any>;
   }) => {
     setError(null);
-    
-    try {
-      await callHistoryAPI('save_interaction', data);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save interaction';
-      setError(errorMessage);
-      console.error('Error saving interaction:', err);
-      // Don't throw here - saving history shouldn't break the main flow
-    }
-  }, [callHistoryAPI]);
+    // Stub - replace with real backend call
+    console.warn('saveInteraction is a stub. Replace with real implementation.');
+  }, []);
 
-  const getHistory = useCallback(async (options?: {
+  const getHistory = useCallback(async (_options?: {
     limit?: number;
     offset?: number;
     toolFilter?: string;
@@ -154,69 +101,46 @@ export function useHistory(): UseHistoryReturn {
   }) => {
     setError(null);
     setIsLoading(true);
-
     try {
-      const result = await callHistoryAPI('get_history', options);
-      return {
-        history: result.history,
-        total: result.total,
-        hasMore: result.hasMore
-      };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch history';
-      setError(errorMessage);
-      throw err;
+      console.warn('getHistory is a stub. Replace with real implementation.');
+      return { history: [], total: 0, hasMore: false };
     } finally {
       setIsLoading(false);
     }
-  }, [callHistoryAPI]);
+  }, []);
 
-  const deleteInteraction = useCallback(async (interactionId: string) => {
+  const deleteInteraction = useCallback(async (_interactionId: string) => {
     setError(null);
-    setIsLoading(true);
-
-    try {
-      await callHistoryAPI('delete_interaction', { interactionId });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to delete interaction';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [callHistoryAPI]);
+    console.warn('deleteInteraction is a stub. Replace with real implementation.');
+  }, []);
 
   const getUserStats = useCallback(async (): Promise<UserStats> => {
     setError(null);
     setIsLoading(true);
-
     try {
-      const result = await callHistoryAPI('get_stats');
-      return result;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch user stats';
-      setError(errorMessage);
-      throw err;
+      console.warn('getUserStats is a stub. Replace with real implementation.');
+      return {
+        overview: {
+          totalInteractions: 0,
+          toolsUsed: 0,
+          documentsUploaded: 0,
+          avgQueryComplexity: 0,
+          mostUsedTool: '',
+          lastActivity: null
+        },
+        toolUsage: [],
+        recentActivity: []
+      };
     } finally {
       setIsLoading(false);
     }
-  }, [callHistoryAPI]);
+  }, []);
 
   const exportData = useCallback(async () => {
     setError(null);
-    setIsLoading(true);
-
-    try {
-      const result = await callHistoryAPI('export_data');
-      return result;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to export data';
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [callHistoryAPI]);
+    console.warn('exportData is a stub. Replace with real implementation.');
+    return {};
+  }, []);
 
   return {
     isLoading,
